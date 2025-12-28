@@ -31,7 +31,7 @@ st.markdown("""
     .briefing-title { font-weight: bold; color: #E5E7EB; font-size: 1.1rem; margin-bottom: 5px; }
     .briefing-text { color: #D1D5DB; font-size: 1rem; }
     
-    /* Estil personalitzat per als botons de filtre (Radio Buttons) */
+    /* Estil personalitzat botons filtre */
     div.row-widget.stRadio > div { flex-direction: row; align-items: stretch; }
     div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] {
         background-color: #1F2937;
@@ -39,8 +39,8 @@ st.markdown("""
         border-radius: 8px;
         border: 1px solid #374151;
         margin-right: 10px;
-        transition: all 0.2s;
     }
+    
     /* Targetes */
     .activity-card { border-radius: 10px; margin-bottom: 10px; border: 1px solid #374151; }
     
@@ -48,10 +48,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CAPÇALERA PERSONALITZADA ---
+# --- CAPÇALERA ---
 st.title("👔 Marc Marlés - Extraescolars")
 
-# --- BARRA LATERAL (Només tècnica) ---
+# --- BARRA LATERAL ---
 st.sidebar.header("⚙️ Connexió")
 url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç Google Sheet")
 if st.sidebar.button("🔄 Refrescar Dades"):
@@ -94,22 +94,18 @@ if url_master:
         if len(mesos) > 0:
             mesos_ordenats = sorted(mesos, reverse=True)
             
-            # --- ZONA DE CONTROL (FILTRES VISUALS) ---
+            # --- ZONA DE CONTROL ---
             st.divider()
-            
-            # Columnes per alinear Mes (esquerra) i Filtre (dreta)
             col_ctrl_1, col_ctrl_2 = st.columns([1, 2])
             
             with col_ctrl_1:
                 mes = st.selectbox("📅 Període:", mesos_ordenats)
             
             with col_ctrl_2:
-                # NOU FILTRE VISUAL (Estil botons horitzontals)
                 cat_filter = st.radio(
                     "🔍 Departament:",
                     ["TOTS", "ESPORTS", "IDIOMES", "LUDIC"],
-                    horizontal=True,
-                    label_visibility="visible"
+                    horizontal=True
                 )
 
             # --- CÀLCULS ---
@@ -123,12 +119,12 @@ if url_master:
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
             df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
             
-            # Filtrar segons la selecció visual
+            # FILTRATGE
             df_view = df_final.copy()
             if cat_filter != "TOTS":
                 df_view = df_view[df_view['Categoria'] == cat_filter]
 
-            # --- BRIEFING (NOMÉS SI HI HA DADES) ---
+            # --- BRIEFING ---
             if not df_view.empty:
                 top_act = df_view.loc[df_view['Marge_Real'].idxmax()]
                 total_ben_view = df_view['Marge_Real'].sum()
@@ -137,13 +133,13 @@ if url_master:
                 <div class="briefing-box">
                     <div class="briefing-title">🤖 Resum Executiu: {cat_filter} ({mes})</div>
                     <div class="briefing-text">
-                        En aquest període i categoria, el benefici és de <b>{total_ben_view:,.0f} €</b>.
-                        L'activitat més destacada és <span style="color:#10B981; font-weight:bold">{top_act['Activitat']}</span>.
+                        Benefici del període: <b>{total_ben_view:,.0f} €</b>.
+                        Activitat destacada: <span style="color:#10B981; font-weight:bold">{top_act['Activitat']}</span>.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             
-            # --- KPI GLOBAL (DEL FILTRE SELECCIONAT) ---
+            # --- KPIS ---
             tot_ing = df_view['Ingressos_Previstos'].sum()
             tot_des = df_view['Despeses'].sum()
             tot_ben = df_view['Marge_Real'].sum()
@@ -157,26 +153,58 @@ if url_master:
 
             st.markdown("---")
             
-            # --- VISUALITZACIÓ ---
+            # --- GRÀFICS (SEGURETAT REFORÇADA) ---
             if not df_view.empty:
                 col_g1, col_g2 = st.columns(2)
-                df_cat_view = df_view.groupby('Categoria')[['Ingressos_Previstos', 'Marge_Real']].sum().reset_index()
 
                 with col_g1:
                     st.caption("Rendibilitat Comparada")
+                    # Gràfic de Barres
                     c1 = alt.Chart(df_view).mark_bar(cornerRadius=5).encode(
                         x=alt.X('Activitat', sort='-y', title=None),
                         y=alt.Y('Marge_Real', title=None),
-                        color=alt.condition(alt.datum.Marge_Real > 0, alt.value("#10B981"), alt.value("#EF4444")),
+                        color=alt.condition(
+                            alt.datum.Marge_Real > 0, 
+                            alt.value("#10B981"), 
+                            alt.value("#EF4444")
+                        ),
                         tooltip=['Activitat', 'Marge_Real']
                     ).properties(height=250)
                     st.altair_chart(c1, use_container_width=True)
 
                 with col_g2:
                     st.caption("Pes Facturació")
-                    c2 = alt.Chart(df_view).mark_arc(innerRadius=55).encode(
-                        theta=alt.Theta(field="Ingressos_Previstos", type="quantitative"),
-                        color=alt.Color(field="Activitat", legend=None),
-                        tooltip=['Activitat', 'Ingressos_Previstos']
+                    # Gràfic de Donut (Simplificat)
+                    base = alt.Chart(df_view).encode(
+                        theta=alt.Theta("Ingressos_Previstos", stack=True)
+                    )
+                    pie = base.mark_arc(innerRadius=55).encode(
+                        color=alt.Color("Activitat", legend=None),
+                        tooltip=["Activitat", "Ingressos_Previstos"]
                     ).properties(height=250)
-                    st.altair_chart(c2, use
+                    st.altair_chart(pie, use_container_width=True)
+
+                # --- LLISTA DETALLADA ---
+                st.subheader(f"📱 Detall: {cat_filter}")
+                df_sorted = df_view.sort_values(by='Marge_Real', ascending=False)
+                
+                for index, row in df_sorted.iterrows():
+                    ben = row['Marge_Real']
+                    nom = row['Activitat']
+                    ing = row['Ingressos_Previstos']
+                    hor = row['Hores_Fetes']
+                    
+                    with st.expander(f"{nom}  |  {ben:,.0f} €"):
+                        c_1, c_2, c_3 = st.columns(3)
+                        c_1.metric("Facturació", f"{ing:.0f} €")
+                        c_2.metric("Hores", f"{hor:.1f} h")
+                        c_3.metric("Costos", f"{row['Despeses']:.0f} €")
+                        if ing > 0:
+                            st.progress(max(0, min(1.0, ben / ing)))
+            else:
+                st.info(f"No hi ha activitats per a la categoria {cat_filter}.")
+                
+    except Exception as e:
+        st.error(f"Error: {e}")
+else:
+    st.info("👈 Connecti el Master Excel.")
