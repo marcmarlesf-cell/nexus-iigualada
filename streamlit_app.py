@@ -4,51 +4,52 @@ import altair as alt
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓ DE PÀGINA ---
-st.set_page_config(page_title="Nexus Mobile V7", layout="wide", page_icon="💎")
+st.set_page_config(page_title="Nexus CEO V8", layout="wide", page_icon="👔")
 
-# Estils CSS Avançats (Targetes)
+# Estils CSS "Boardroom"
 st.markdown("""
 <style>
     .main { background-color: #0E1117; }
     
-    /* KPI Cards */
+    /* KPI Cards Premium */
     div[data-testid="stMetric"] {
-        background-color: #1F2937;
+        background-color: #111827; /* Més fosc, més elegant */
         padding: 15px;
         border-radius: 12px;
-        border-left: 4px solid #10B981;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        border: 1px solid #374151;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.5);
     }
     
-    /* Títols */
-    h1, h2, h3 { color: #F9FAFB; font-family: 'Helvetica Neue', sans-serif; }
-    
-    /* Targetes d'Activitat (Custom) */
-    .activity-card {
+    /* El Briefing (La caixa intel·ligent) */
+    .briefing-box {
         background-color: #1F2937;
         padding: 20px;
         border-radius: 10px;
-        margin-bottom: 10px;
-        border: 1px solid #374151;
+        border-left: 5px solid #8B5CF6; /* Lila tecnològic */
+        margin-bottom: 20px;
     }
+    .briefing-title { font-weight: bold; color: #E5E7EB; font-size: 1.1rem; margin-bottom: 5px; }
+    .briefing-text { color: #D1D5DB; font-size: 1rem; }
+    
+    /* Targetes d'Activitat */
+    .activity-card { border-radius: 10px; margin-bottom: 10px; border: 1px solid #374151; }
     .good-profit { border-left: 5px solid #10B981; }
     .bad-profit { border-left: 5px solid #EF4444; }
     
-    .card-title { font-size: 1.2rem; font-weight: bold; color: white; margin-bottom: 5px;}
-    .card-stat { font-size: 1rem; color: #D1D5DB; }
-    .card-value { font-size: 1.5rem; font-weight: bold; float: right; }
-    .green { color: #10B981; }
-    .red { color: #EF4444; }
-    
+    h1, h2, h3 { color: #F9FAFB; font-family: 'Helvetica Neue', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💎 Nexus Executive: Mobile V7")
+st.title("👔 Nexus Executive: Boardroom")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("⚙️ Connexió")
+st.sidebar.header("⚙️ Centre de Dades")
 url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç Google Sheet")
-if st.sidebar.button("🔄 Refrescar"):
+
+# FILTRE DE CATEGORIA (NOU!)
+cat_filter = st.sidebar.selectbox("📂 Filtrar per Departament", ["TOTS", "ESPORTS", "IDIOMES", "LUDIC", "ARTISTIC", "TECNOLOGIC"])
+
+if st.sidebar.button("🔄 Refrescar Sistema"):
     st.cache_data.clear()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -83,20 +84,17 @@ if url_master:
         df_registre['Mes_Any'] = df_registre['Data_DT'].dt.strftime('%Y-%m')
         df_registre['Activitat_Join'] = df_registre['Activitat'].astype(str).str.strip().str.upper()
 
-        # Càlcul Històric
-        df_hist = pd.merge(df_registre, df_config, on='Activitat_Join', how='left')
-        df_hist['Cost_Total'] = (df_hist['Hores_Fetes'] * df_hist['Preu_Hora_Monitor']) + df_hist['Cost_Material_Fix']
-        df_hist['Marge'] = df_hist['Ingressos_Previstos'] - df_hist['Cost_Total']
-        df_evo = df_hist.groupby('Mes_Any')[['Ingressos_Previstos', 'Marge']].sum().reset_index()
-
-        # DASHBOARD MES ACTUAL
+        # DASHBOARD
         mesos = df_registre['Mes_Any'].dropna().unique()
         if len(mesos) > 0:
-            col_sel, _ = st.columns([1, 3])
-            with col_sel:
-                mes = st.selectbox("📅 Mes a Analitzar:", sorted(mesos, reverse=True))
+            mesos_ordenats = sorted(mesos, reverse=True)
             
-            # Càlculs Mes
+            # Selector de mes a la part principal per més visibilitat
+            col_titol, col_sel = st.columns([3, 1])
+            with col_sel:
+                mes = st.selectbox("📅 Període:", mesos_ordenats)
+            
+            # --- LÒGICA DEL MES ACTUAL ---
             df_reg_mes = df_registre[df_registre['Mes_Any'] == mes].copy()
             df_hores = df_reg_mes.groupby('Activitat_Join')['Hores_Fetes'].sum().reset_index()
             
@@ -106,86 +104,111 @@ if url_master:
             df_final['Cost_Nomina'] = df_final['Hores_Fetes'] * df_final['Preu_Hora_Monitor']
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
             df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
+
+            # --- LÒGICA DEL MES ANTERIOR (PER CALCULAR DELTA) ---
+            delta_ben = None
+            if len(mesos_ordenats) > 1:
+                idx_actual = mesos_ordenats.index(mes)
+                if idx_actual + 1 < len(mesos_ordenats):
+                    mes_prev = mesos_ordenats[idx_actual + 1]
+                    # Calculem ràpid el total del mes anterior
+                    df_prev = df_registre[df_registre['Mes_Any'] == mes_prev]
+                    df_h_prev = df_prev.groupby('Activitat_Join')['Hores_Fetes'].sum().reset_index()
+                    df_f_prev = pd.merge(df_config, df_h_prev, on='Activitat_Join', how='left').fillna(0)
+                    df_f_prev['Cost'] = (df_f_prev['Hores_Fetes'] * df_f_prev['Preu_Hora_Monitor']) + df_f_prev['Cost_Material_Fix']
+                    df_f_prev['Marge'] = df_f_prev['Ingressos_Previstos'] - df_f_prev['Cost']
+                    delta_ben = df_final['Marge_Real'].sum() - df_f_prev['Marge'].sum()
+
+            # --- INTEL·LIGÈNCIA ARTIFICIAL (NEXUS AI BRIEFING) ---
+            # Calculem insights automàtics
+            top_act = df_final.loc[df_final['Marge_Real'].idxmax()]
+            worst_act = df_final.loc[df_final['Marge_Real'].idxmin()]
+            total_ben = df_final['Marge_Real'].sum()
             
-            # KPI Cards Principals
+            st.markdown(f"""
+            <div class="briefing-box">
+                <div class="briefing-title">🤖 Nexus AI Briefing ({mes})</div>
+                <div class="briefing-text">
+                    • <b>Estat General:</b> El negoci genera <b>{total_ben:,.0f} €</b> de benefici net aquest mes.<br>
+                    • <b>L'Estrella:</b> <span style="color:#10B981">{top_act['Activitat']}</span> lidera amb {top_act['Marge_Real']:,.0f} €.<br>
+                    • <b>Atenció:</b> <span style="color:#EF4444">{worst_act['Activitat']}</span> és l'activitat amb pitjor rendiment ({worst_act['Marge_Real']:,.0f} €).
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # --- KPI CARDS (Amb Delta) ---
             tot_ing = df_final['Ingressos_Previstos'].sum()
-            tot_ben = df_final['Marge_Real'].sum()
-            marge_pc = (tot_ben / tot_ing * 100) if tot_ing > 0 else 0
+            marge_pc = (total_ben / tot_ing * 100) if tot_ing > 0 else 0
             
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Ingressos", f"{tot_ing:,.0f} €")
-            k2.metric("Despeses", f"{df_final['Despeses'].sum():,.0f} €")
-            k3.metric("BENEFICI NET", f"{tot_ben:,.0f} €")
+            k2.metric("Despeses Totals", f"{df_final['Despeses'].sum():,.0f} €")
+            
+            # El KPI de Benefici mostra la fletxa si tenim dades prèvies
+            k3.metric("BENEFICI NET", f"{total_ben:,.0f} €", 
+                      delta=f"{delta_ben:,.0f} € vs mes anterior" if delta_ben is not None else None)
+            
             k4.metric("Marge Comercial", f"{marge_pc:.1f} %")
 
-            # --- GRÀFICS VISUALS ---
+            # --- FILTRATGE DINÀMIC ---
+            df_view = df_final.copy()
+            if cat_filter != "TOTS":
+                df_view = df_view[df_view['Categoria'] == cat_filter]
+
+            # --- GRÀFICS ---
             st.markdown("---")
-            col_g1, col_g2 = st.columns(2)
-            
-            df_cat = df_final.groupby('Categoria')[['Ingressos_Previstos', 'Marge_Real']].sum().reset_index()
-
-            with col_g1:
-                st.caption("Rendibilitat per Categoria")
-                c1 = alt.Chart(df_cat).mark_bar(cornerRadius=5).encode(
-                    x=alt.X('Categoria', sort='-y', title=None),
-                    y=alt.Y('Marge_Real', title=None),
-                    color=alt.condition(alt.datum.Marge_Real > 0, alt.value("#10B981"), alt.value("#EF4444")),
-                    tooltip=['Categoria', 'Marge_Real']
-                ).properties(height=250)
-                st.altair_chart(c1, use_container_width=True)
-
-            with col_g2:
-                st.caption("Origen dels Ingressos")
-                c2 = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(
-                    theta=alt.Theta(field="Ingressos_Previstos", type="quantitative"),
-                    color=alt.Color(field="Categoria", legend=None),
-                    tooltip=['Categoria', 'Ingressos_Previstos']
-                ).properties(height=250)
-                st.altair_chart(c2, use_container_width=True)
-
-            # --- NOVA SECCIÓ: LLISTA D'ACTIVITATS (MOBILE FRIENDLY) ---
-            st.subheader("📱 Detall Activitat a Activitat")
-            
-            # Ordenem: Primer les que guanyen més diners, al final les que perden
-            df_sorted = df_final.sort_values(by='Marge_Real', ascending=False)
-            
-            # Bucle per crear una "Targeta" per a cada activitat
-            for index, row in df_sorted.iterrows():
-                ben = row['Marge_Real']
-                nom = row['Activitat']
-                cat = row['Categoria']
-                ing = row['Ingressos_Previstos']
-                hor = row['Hores_Fetes']
+            if not df_view.empty:
+                col_g1, col_g2 = st.columns(2)
                 
-                # Color de la targeta segons si guanya o perd
-                color_class = "good-profit" if ben >= 0 else "bad-profit"
-                color_text = "green" if ben >= 0 else "red"
+                # Agrupem pel gràfic
+                df_cat_view = df_view.groupby('Categoria')[['Ingressos_Previstos', 'Marge_Real']].sum().reset_index()
+
+                with col_g1:
+                    st.caption(f"Rendibilitat ({cat_filter})")
+                    c1 = alt.Chart(df_cat_view).mark_bar(cornerRadius=5).encode(
+                        x=alt.X('Categoria', sort='-y', title=None),
+                        y=alt.Y('Marge_Real', title=None),
+                        color=alt.condition(alt.datum.Marge_Real > 0, alt.value("#10B981"), alt.value("#EF4444")),
+                        tooltip=['Categoria', 'Marge_Real']
+                    ).properties(height=250)
+                    st.altair_chart(c1, use_container_width=True)
+
+                with col_g2:
+                    st.caption("Pes dels Ingressos")
+                    c2 = alt.Chart(df_cat_view).mark_arc(innerRadius=55).encode(
+                        theta=alt.Theta(field="Ingressos_Previstos", type="quantitative"),
+                        color=alt.Color(field="Categoria", legend=None),
+                        tooltip=['Categoria', 'Ingressos_Previstos']
+                    ).properties(height=250)
+                    st.altair_chart(c2, use_container_width=True)
+
+                # --- TARGETES MOBILE ---
+                st.subheader(f"📱 Detall Operatiu: {cat_filter}")
                 
-                # DISSENY DE LA TARGETA DESPLEGABLE
-                with st.expander(f"{nom}  |  {ben:,.0f} €"):
-                    c_1, c_2, c_3 = st.columns(3)
-                    c_1.metric("Ingressos", f"{ing:.0f} €")
-                    c_2.metric("Hores Fetes", f"{hor:.1f} h")
-                    c_3.metric("Cost Nòmina", f"{row['Cost_Nomina']:.0f} €")
+                # Ordenem
+                df_sorted = df_view.sort_values(by='Marge_Real', ascending=False)
+                
+                for index, row in df_sorted.iterrows():
+                    ben = row['Marge_Real']
+                    nom = row['Activitat']
+                    ing = row['Ingressos_Previstos']
+                    hor = row['Hores_Fetes']
                     
-                    # Barra de progrés visual de rendibilitat
-                    if ing > 0:
-                        ratio = max(0, min(1.0, ben / ing)) # Normalitzem entre 0 i 1
-                        st.progress(ratio)
-                        st.caption(f"Marge sobre vendes: {(ben/ing*100):.1f}%")
-                    else:
-                        st.warning("Sense ingressos previstos")
-
-            # --- HISTÒRIC (AMAGAT AL FINAL) ---
-            st.markdown("---")
-            with st.expander("📉 Veure Gràfic Històric (Evolució)"):
-                c_evo = alt.Chart(df_evo).mark_line(point=True).encode(
-                    x='Mes_Any', y='Marge', tooltip=['Mes_Any', 'Marge']
-                ).interactive()
-                st.altair_chart(c_evo, use_container_width=True)
-                st.caption("*La línia apareixerà quan hi hagi més d'un mes de dades.")
+                    with st.expander(f"{nom}  |  {ben:,.0f} €"):
+                        c_1, c_2, c_3 = st.columns(3)
+                        c_1.metric("Facturació", f"{ing:.0f} €")
+                        c_2.metric("Hores", f"{hor:.1f} h")
+                        c_3.metric("Costos", f"{row['Despeses']:.0f} €")
+                        
+                        if ing > 0:
+                            ratio = max(0, min(1.0, ben / ing))
+                            st.progress(ratio)
+                        else:
+                            st.info("Sense facturació prevista")
+            else:
+                st.warning(f"No hi ha activitats per a la categoria: {cat_filter}")
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error de sistema: {e}")
 else:
     st.info("👈 Connecti el Master Excel.")
