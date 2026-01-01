@@ -1,58 +1,82 @@
 import streamlit as st
 import pandas as pd
-import altair as alt
+import plotly.express as px # <--- NOVA LLIBRERIA VISUAL
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓ DE PÀGINA ---
 st.set_page_config(page_title="Marc Marlés Control", layout="wide", page_icon="🎓")
 
-# Estils CSS Premium
+# --- ESTILS CSS "OLED PREMIUM" (Blindat contra Mode Clar) ---
 st.markdown("""
 <style>
-    .main { background-color: #0E1117; }
-    
-    /* KPI Cards */
-    div[data-testid="stMetric"] {
-        background-color: #111827; 
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #374151;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+    /* Forçar mode fosc globalment per evitar conflictes amb iPhone en mode clar */
+    [data-testid="stAppViewContainer"] {
+        background-color: #000000; /* Negre pur per pantalles OLED */
     }
     
-    /* Briefing Box */
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0); /* Transparent */
+    }
+
+    /* Forçar text blanc a tot arreu */
+    h1, h2, h3, h4, h5, h6, p, label, span, div {
+        color: #E5E7EB !important;
+        font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* KPI Cards - Estil Glassmorphism Fosc */
+    div[data-testid="stMetric"] {
+        background-color: #111111; 
+        padding: 15px;
+        border-radius: 16px;
+        border: 1px solid #333333;
+        transition: transform 0.2s;
+    }
+    div[data-testid="stMetric"]:hover {
+        border-color: #8B5CF6; /* Toc lila al passar per sobre */
+    }
+    
+    /* Etiquetes de mètriques en gris fluix */
+    div[data-testid="stMetricLabel"] > label {
+        color: #9CA3AF !important;
+    }
+
+    /* Briefing Box Millorat */
     .briefing-box {
-        background-color: #1F2937;
+        background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 16px;
         border-left: 5px solid #8B5CF6;
         margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
-    .briefing-title { font-weight: bold; color: #E5E7EB; font-size: 1.1rem; margin-bottom: 5px; }
-    .briefing-text { color: #D1D5DB; font-size: 1rem; }
+    .briefing-title { font-weight: 800; color: #FFFFFF !important; font-size: 1.2rem; margin-bottom: 8px; }
+    .briefing-text { color: #D1D5DB !important; font-size: 1rem; line-height: 1.5; }
     
-    /* Filtres */
-    div.row-widget.stRadio > div { flex-direction: row; align-items: stretch; }
+    /* Filtres (Radio Buttons) */
     div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] {
-        background-color: #1F2937;
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: 1px solid #374151;
-        margin-right: 10px;
+        background-color: #1A1A1A;
+        border: 1px solid #333333;
+        color: white !important;
     }
     
-    /* Títols */
-    h1 { color: #F9FAFB; font-family: 'Helvetica Neue', sans-serif; font-weight: 800; }
+    /* Taules i expanders */
+    .streamlit-expanderHeader {
+        background-color: #1A1A1A !important;
+        color: white !important;
+        border-radius: 8px;
+    }
+    
 </style>
 """, unsafe_allow_html=True)
 
 # --- CAPÇALERA ---
-st.title("🎓 Marc Marlés - Extraescolars")
+st.title("🎓 Marc Marlés - Coordinació")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("⚙️ Connexió")
+st.sidebar.header("⚙️ Dades")
 url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç Google Sheet")
-if st.sidebar.button("🔄 Refrescar Dades"):
+if st.sidebar.button("🔄 Refrescar", use_container_width=True):
     st.cache_data.clear()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -68,7 +92,6 @@ def netejar_numero(val):
         return 0.0
 
 def get_icon(categoria):
-    """Assigna icones segons la categoria per fer-ho visual"""
     cat = str(categoria).upper().strip()
     if "ESPORTS" in cat: return "⚽"
     if "IDIOMES" in cat: return "🇬🇧"
@@ -79,11 +102,10 @@ def get_icon(categoria):
 
 if url_master:
     try:
-        # 1. CARREGAR CONFIGURACIÓ
+        # 1. CARREGAR DADES
         df_config = conn.read(spreadsheet=url_master, worksheet=0)
         df_config.columns = df_config.columns.str.strip()
         
-        # Neteja de columnes
         cols_num = ['Preu_Alumne', 'Num_Alumnes', 'Cost_Material_Fix', 'Preu_Hora_Monitor']
         for col in cols_num:
             if col in df_config.columns: df_config[col] = df_config[col].apply(netejar_numero)
@@ -91,7 +113,6 @@ if url_master:
         df_config['Ingressos_Previstos'] = df_config['Preu_Alumne'] * df_config['Num_Alumnes']
         df_config['Activitat_Join'] = df_config['Activitat'].astype(str).str.strip().str.upper()
 
-        # 2. CARREGAR REGISTRE
         df_registre = conn.read(spreadsheet=url_master, worksheet=1)
         df_registre.columns = df_registre.columns.str.strip()
         if 'Hores_Fetes' in df_registre.columns: df_registre['Hores_Fetes'] = df_registre['Hores_Fetes'].apply(netejar_numero)
@@ -105,15 +126,17 @@ if url_master:
         if len(mesos) > 0:
             mesos_ordenats = sorted(mesos, reverse=True)
             
-            # --- ZONA DE CONTROL ---
+            # --- CONTROLS ---
             st.divider()
-            col_ctrl_1, col_ctrl_2 = st.columns([1, 2])
+            col_ctrl_1, col_ctrl_2 = st.columns([1, 3])
             with col_ctrl_1:
                 mes = st.selectbox("📅 Període:", mesos_ordenats)
             with col_ctrl_2:
-                cat_filter = st.radio("🔍 Departament:", ["TOTS", "ESPORTS", "IDIOMES", "LUDIC"], horizontal=True)
+                # Canviem a multiselect o deixem radio, però millorem la UI
+                filtre_cats = ["TOTS"] + list(df_config['Categoria'].unique())
+                cat_filter = st.selectbox("🔍 Filtrar Departament:", filtre_cats)
 
-            # --- CÀLCULS MOTOR ---
+            # --- CÀLCULS ---
             df_reg_mes = df_registre[df_registre['Mes_Any'] == mes].copy()
             df_hores = df_reg_mes.groupby('Activitat_Join')['Hores_Fetes'].sum().reset_index()
             
@@ -124,96 +147,83 @@ if url_master:
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
             df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
             
-            # FILTRATGE
+            # Preparar dades pel Sunburst ABANS de filtrar per visualitzar-ho tot si cal
+            df_sunburst = df_final.copy()
+            df_sunburst['Marge_Positiu'] = df_sunburst['Marge_Real'].apply(lambda x: x if x > 0 else 0)
+            
+            # FILTRATGE VISTA TAULA
             df_view = df_final.copy()
             if cat_filter != "TOTS":
                 df_view = df_view[df_view['Categoria'] == cat_filter]
 
-            # --- BRIEFING INTELLIGENT ---
-            if not df_view.empty:
-                top_act = df_view.loc[df_view['Marge_Real'].idxmax()]
-                total_ben_view = df_view['Marge_Real'].sum()
-                total_alumnes = df_view['Num_Alumnes'].sum()
-                
-                # Ràtio d'Or: Benefici per Alumne
-                ratio_alumne = (total_ben_view / total_alumnes) if total_alumnes > 0 else 0
-                
-                st.markdown(f"""
-                <div class="briefing-box">
-                    <div class="briefing-title">🤖 Informe Director: {cat_filter} ({mes})</div>
-                    <div class="briefing-text">
-                        Gestionant <b>{total_alumnes:.0f} alumnes</b>, el benefici és de <b>{total_ben_view:,.0f} €</b>.<br>
-                        Això suposa un rendiment net de <span style="color:#10B981; font-weight:bold">{ratio_alumne:.1f} € per alumne</span>.
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # --- NOUS KPIS (4 Columnes Estratègiques) ---
+            # --- KPIS ---
             tot_ing = df_view['Ingressos_Previstos'].sum()
             tot_ben = df_view['Marge_Real'].sum()
             tot_students = df_view['Num_Alumnes'].sum()
             marge_pc = (tot_ben / tot_ing * 100) if tot_ing > 0 else 0
             
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("👥 Alumnes Inscrits", f"{tot_students:.0f}")
-            k2.metric("Ingressos Totals", f"{tot_ing:,.0f} €")
-            k3.metric("Marge Comercial", f"{marge_pc:.1f} %")
-            k4.metric("BENEFICI NET", f"{tot_ben:,.0f} €")
+            k1.metric("👥 Alumnes", f"{tot_students:.0f}")
+            k2.metric("Facturació", f"{tot_ing:,.0f} €")
+            k3.metric("Marge %", f"{marge_pc:.1f} %", delta_color="normal")
+            k4.metric("Benefici Net", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
 
             st.markdown("---")
             
-            # --- GRÀFICS ---
+            # --- ZONA VISUAL AVANÇADA (SUNBURST) ---
+            st.subheader("🔭 Mapa d'Ingressos Interactiu")
+            st.caption("Faci clic als cercles centrals per aprofundir en les dades (Drill-down).")
+
+            if not df_sunburst.empty:
+                # Creació del gràfic Sunburst sofisticat
+                fig = px.sunburst(
+                    df_sunburst, 
+                    path=['Categoria', 'Activitat'], 
+                    values='Num_Alumnes',
+                    color='Marge_Real',
+                    color_continuous_scale='RdYlGn', # Vermell a Verd
+                    color_continuous_midpoint=0,
+                    hover_data=['Ingressos_Previstos']
+                )
+                
+                # Ajustos visuals per fons fosc
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    margin=dict(t=0, l=0, r=0, b=0),
+                    height=500
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+
+            # --- LLISTAT DETALLAT ---
+            st.markdown("### 📋 Detall d'Activitats")
+            
             if not df_view.empty:
-                col_g1, col_g2 = st.columns(2)
-                with col_g1:
-                    st.caption("Rendibilitat Comparada")
-                    c1 = alt.Chart(df_view).mark_bar(cornerRadius=5).encode(
-                        x=alt.X('Activitat', sort='-y', title=None),
-                        y=alt.Y('Marge_Real', title=None),
-                        color=alt.condition(alt.datum.Marge_Real > 0, alt.value("#10B981"), alt.value("#EF4444")),
-                        tooltip=['Activitat', 'Marge_Real', 'Num_Alumnes']
-                    ).properties(height=250)
-                    st.altair_chart(c1, use_container_width=True)
-
-                with col_g2:
-                    st.caption(f"Distribució d'Alumnes ({tot_students} totals)")
-                    base = alt.Chart(df_view).encode(theta=alt.Theta("Num_Alumnes", stack=True))
-                    pie = base.mark_arc(innerRadius=55).encode(
-                        color=alt.Color("Activitat", legend=None),
-                        order=alt.Order("Num_Alumnes", sort="descending"),
-                        tooltip=["Activitat", "Num_Alumnes"]
-                    ).properties(height=250)
-                    st.altair_chart(pie, use_container_width=True)
-
-                # --- TARGETES AMB ICONES ---
-                st.subheader(f"📱 Detall: {cat_filter}")
                 df_sorted = df_view.sort_values(by='Marge_Real', ascending=False)
                 
                 for index, row in df_sorted.iterrows():
                     ben = row['Marge_Real']
                     nom = row['Activitat']
-                    ing = row['Ingressos_Previstos']
-                    icon = get_icon(row['Categoria']) # Icona automàtica
-                    alumnes = row['Num_Alumnes']
+                    icon = get_icon(row['Categoria'])
                     
-                    with st.expander(f"{icon} {nom}  |  {ben:,.0f} €"):
-                        c_1, c_2, c_3, c_4 = st.columns(4)
-                        c_1.metric("Alumnes", f"{alumnes:.0f}")
-                        c_2.metric("Facturació", f"{ing:.0f} €")
-                        c_3.metric("Hores", f"{row['Hores_Fetes']:.1f} h")
-                        # Semàfor de rendibilitat
-                        if ben > 0:
-                            c_4.markdown(f"<span style='color:#10B981; font-weight:bold; font-size:1.5rem'>+{ben:.0f} €</span>", unsafe_allow_html=True)
-                        else:
-                            c_4.markdown(f"<span style='color:#EF4444; font-weight:bold; font-size:1.5rem'>{ben:.0f} €</span>", unsafe_allow_html=True)
-                        
-                        if ing > 0:
-                            st.caption("Barra d'eficiència:")
-                            st.progress(max(0, min(1.0, ben / ing)))
+                    # Targeta visual customitzada
+                    with st.expander(f"{icon} {nom}  |  Benefici: {ben:,.0f} €"):
+                        col_a, col_b = st.columns([1,3])
+                        with col_a:
+                            st.metric("Alumnes", f"{row['Num_Alumnes']:.0f}")
+                        with col_b:
+                            if row['Ingressos_Previstos'] > 0:
+                                eficiencia = max(0, min(1.0, ben / row['Ingressos_Previstos']))
+                                st.write(f"Eficiència econòmica: {eficiencia*100:.1f}%")
+                                st.progress(eficiencia)
+                            
+                            st.write(f"**Cost Nómina:** {row['Cost_Nomina']:.2f}€ | **Material:** {row['Cost_Material_Fix']:.2f}€")
             else:
-                st.info(f"No hi ha activitats per a la categoria {cat_filter}.")
-                
+                st.warning("No hi ha dades per mostrar amb aquests filtres.")
+
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"⚠️ Error de càrrega: {e}")
 else:
-    st.info("👈 Connecti el Master Excel.")
+    st.info("👈 Introdueixi la URL del full de càlcul per començar.")
