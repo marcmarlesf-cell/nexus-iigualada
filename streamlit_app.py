@@ -1,72 +1,52 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px # <--- NOVA LLIBRERIA VISUAL
+import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓ DE PÀGINA ---
 st.set_page_config(page_title="Marc Marlés Control", layout="wide", page_icon="🎓")
 
-# --- ESTILS CSS "OLED PREMIUM" (Blindat contra Mode Clar) ---
+# --- ESTILS CSS CORREGITS (NO TRENQUEN ICONES) ---
 st.markdown("""
 <style>
-    /* Forçar mode fosc globalment per evitar conflictes amb iPhone en mode clar */
+    /* Fons fosc net */
     [data-testid="stAppViewContainer"] {
-        background-color: #000000; /* Negre pur per pantalles OLED */
+        background-color: #0E1117;
     }
     
     [data-testid="stHeader"] {
-        background-color: rgba(0,0,0,0); /* Transparent */
+        background-color: rgba(0,0,0,0);
     }
 
-    /* Forçar text blanc a tot arreu */
-    h1, h2, h3, h4, h5, h6, p, label, span, div {
-        color: #E5E7EB !important;
-        font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-
-    /* KPI Cards - Estil Glassmorphism Fosc */
+    /* KPI Cards */
     div[data-testid="stMetric"] {
-        background-color: #111111; 
+        background-color: #1F2937; 
         padding: 15px;
-        border-radius: 16px;
-        border: 1px solid #333333;
-        transition: transform 0.2s;
-    }
-    div[data-testid="stMetric"]:hover {
-        border-color: #8B5CF6; /* Toc lila al passar per sobre */
+        border-radius: 12px;
+        border: 1px solid #374151;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    /* Etiquetes de mètriques en gris fluix */
-    div[data-testid="stMetricLabel"] > label {
-        color: #9CA3AF !important;
+    /* Textos principals en blanc (però respectant icones) */
+    h1, h2, h3, .briefing-title, .briefing-text, p, label {
+        color: #E5E7EB !important;
     }
-
-    /* Briefing Box Millorat */
+    
+    /* Briefing Box */
     .briefing-box {
-        background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+        background-color: #1F2937;
         padding: 20px;
-        border-radius: 16px;
+        border-radius: 10px;
         border-left: 5px solid #8B5CF6;
         margin-bottom: 25px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    }
-    .briefing-title { font-weight: 800; color: #FFFFFF !important; font-size: 1.2rem; margin-bottom: 8px; }
-    .briefing-text { color: #D1D5DB !important; font-size: 1rem; line-height: 1.5; }
-    
-    /* Filtres (Radio Buttons) */
-    div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] {
-        background-color: #1A1A1A;
-        border: 1px solid #333333;
-        color: white !important;
     }
     
-    /* Taules i expanders */
+    /* Expander arreglat */
     .streamlit-expanderHeader {
-        background-color: #1A1A1A !important;
+        background-color: #1F2937 !important;
         color: white !important;
         border-radius: 8px;
     }
-    
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,7 +112,6 @@ if url_master:
             with col_ctrl_1:
                 mes = st.selectbox("📅 Període:", mesos_ordenats)
             with col_ctrl_2:
-                # Canviem a multiselect o deixem radio, però millorem la UI
                 filtre_cats = ["TOTS"] + list(df_config['Categoria'].unique())
                 cat_filter = st.selectbox("🔍 Filtrar Departament:", filtre_cats)
 
@@ -147,11 +126,7 @@ if url_master:
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
             df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
             
-            # Preparar dades pel Sunburst ABANS de filtrar per visualitzar-ho tot si cal
-            df_sunburst = df_final.copy()
-            df_sunburst['Marge_Positiu'] = df_sunburst['Marge_Real'].apply(lambda x: x if x > 0 else 0)
-            
-            # FILTRATGE VISTA TAULA
+            # FILTRATGE
             df_view = df_final.copy()
             if cat_filter != "TOTS":
                 df_view = df_view[df_view['Categoria'] == cat_filter]
@@ -165,40 +140,41 @@ if url_master:
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("👥 Alumnes", f"{tot_students:.0f}")
             k2.metric("Facturació", f"{tot_ing:,.0f} €")
-            k3.metric("Marge %", f"{marge_pc:.1f} %", delta_color="normal")
-            k4.metric("Benefici Net", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
+            k3.metric("Marge %", f"{marge_pc:.1f} %")
+            k4.metric("Benefici Net", f"{tot_ben:,.0f} €")
 
             st.markdown("---")
             
-            # --- ZONA VISUAL AVANÇADA (SUNBURST) ---
-            st.subheader("🔭 Mapa d'Ingressos Interactiu")
-            st.caption("Faci clic als cercles centrals per aprofundir en les dades (Drill-down).")
+            # --- SUNBURST CORREGIT (COLORS PER CATEGORIA) ---
+            st.subheader("🔭 Mapa Visual d'Activitats")
+            
+            if not df_view.empty:
+                # Preparem dades: Si hem filtrat un departament, mostrem només aquell
+                # Si és TOTS, mostrem tot l'arbre
+                df_chart = df_view if cat_filter != "TOTS" else df_final
 
-            if not df_sunburst.empty:
-                # Creació del gràfic Sunburst sofisticat
                 fig = px.sunburst(
-                    df_sunburst, 
+                    df_chart, 
                     path=['Categoria', 'Activitat'], 
                     values='Num_Alumnes',
-                    color='Marge_Real',
-                    color_continuous_scale='RdYlGn', # Vermell a Verd
-                    color_continuous_midpoint=0,
-                    hover_data=['Ingressos_Previstos']
+                    color='Categoria', # <--- ARA EL COLOR DEPÈN DEL DEPARTAMENT
+                    color_discrete_sequence=px.colors.qualitative.Pastel, # Colors elegants i diferents
+                    hover_data=['Marge_Real']
                 )
                 
-                # Ajustos visuals per fons fosc
                 fig.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='white'),
+                    font=dict(color='white', size=14),
                     margin=dict(t=0, l=0, r=0, b=0),
                     height=500
                 )
+                fig.update_traces(textinfo="label+value") # Mostra Nom + Num Alumnes
                 
                 st.plotly_chart(fig, use_container_width=True)
 
             # --- LLISTAT DETALLAT ---
-            st.markdown("### 📋 Detall d'Activitats")
+            st.markdown("### 📋 Detall Econòmic")
             
             if not df_view.empty:
                 df_sorted = df_view.sort_values(by='Marge_Real', ascending=False)
@@ -207,21 +183,22 @@ if url_master:
                     ben = row['Marge_Real']
                     nom = row['Activitat']
                     icon = get_icon(row['Categoria'])
+                    ing = row['Ingressos_Previstos']
                     
-                    # Targeta visual customitzada
+                    # Targeta
                     with st.expander(f"{icon} {nom}  |  Benefici: {ben:,.0f} €"):
                         col_a, col_b = st.columns([1,3])
                         with col_a:
                             st.metric("Alumnes", f"{row['Num_Alumnes']:.0f}")
                         with col_b:
-                            if row['Ingressos_Previstos'] > 0:
-                                eficiencia = max(0, min(1.0, ben / row['Ingressos_Previstos']))
-                                st.write(f"Eficiència econòmica: {eficiencia*100:.1f}%")
+                            if ing > 0:
+                                eficiencia = max(0, min(1.0, ben / ing))
                                 st.progress(eficiencia)
+                                st.caption(f"Marge sobre ingressos: {eficiencia*100:.1f}%")
                             
                             st.write(f"**Cost Nómina:** {row['Cost_Nomina']:.2f}€ | **Material:** {row['Cost_Material_Fix']:.2f}€")
             else:
-                st.warning("No hi ha dades per mostrar amb aquests filtres.")
+                st.warning("No hi ha dades per mostrar.")
 
     except Exception as e:
         st.error(f"⚠️ Error de càrrega: {e}")
