@@ -1,15 +1,16 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓ DE PÀGINA ---
 st.set_page_config(page_title="Marc Marlés Control", layout="wide", page_icon="🎓")
 
-# --- ESTILS CSS PREMIUM ---
+# --- ESTILS CSS PREMIUM & FIX BUGS ---
 st.markdown("""
 <style>
-    /* Fons fosc net */
+    /* 1. Fons fosc net i professional */
     [data-testid="stAppViewContainer"] {
         background-color: #0E1117;
     }
@@ -17,7 +18,19 @@ st.markdown("""
         background-color: rgba(0,0,0,0);
     }
 
-    /* KPI Cards */
+    /* 2. SOLUCIÓ ERROR TEXT INPUT (Amagar instruccions 'Press Enter') */
+    [data-testid="InputInstructions"] {
+        display: none !important;
+    }
+    
+    /* Millorar l'input de text per evitar superposicions */
+    div[data-baseweb="input"] {
+        background-color: #1F2937 !important;
+        border: 1px solid #374151;
+        color: white;
+    }
+
+    /* 3. KPI Cards amb efecte elevat */
     div[data-testid="stMetric"] {
         background-color: #1F2937; 
         padding: 15px;
@@ -26,25 +39,27 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    /* Textos principals en blanc */
+    /* 4. Tipografia global neta */
     h1, h2, h3, .briefing-title, .briefing-text, p, label {
         color: #E5E7EB !important;
+        font-family: 'Segoe UI', sans-serif;
     }
     
-    /* Pestanyes (Tabs) personalitzades */
+    /* 5. Pestanyes (Tabs) Estilitzades */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
+        gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1F2937;
-        border-radius: 4px;
-        color: white;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        background-color: #111827;
+        border-radius: 6px;
+        color: #9CA3AF;
+        padding: 8px 16px;
+        border: 1px solid #374151;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #8B5CF6 !important;
+        background-color: #7C3AED !important; /* Lila Institució */
         color: white !important;
+        border-color: #7C3AED;
     }
 
     /* Expander arreglat */
@@ -57,12 +72,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CAPÇALERA ---
-st.title("🎓 Marc Marlés - Coordinació")
+col_head_1, col_head_2 = st.columns([3,1])
+with col_head_1:
+    st.title("🎓 Marc Marlés - Estratègia")
+with col_head_2:
+    st.caption("v12.0 Strategic")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("⚙️ Dades")
-url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç Google Sheet")
-if st.sidebar.button("🔄 Refrescar", use_container_width=True):
+st.sidebar.header("⚙️ Configuració")
+url_master = st.sidebar.text_input("URL Master Excel", help="Enganxi l'enllaç aquí")
+
+# Botó d'acció manual per evitar refrescos constants
+if st.sidebar.button("🔄 Actualitzar Dades", use_container_width=True):
     st.cache_data.clear()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -88,7 +109,7 @@ def get_icon(categoria):
 
 if url_master:
     try:
-        # 1. CARREGAR DADES
+        # --- CÀRREGA DE DADES ---
         df_config = conn.read(spreadsheet=url_master, worksheet=0)
         df_config.columns = df_config.columns.str.strip()
         
@@ -112,16 +133,16 @@ if url_master:
         if len(mesos) > 0:
             mesos_ordenats = sorted(mesos, reverse=True)
             
-            # --- CONTROLS ---
+            # --- ZONA DE FILTRES ---
             st.divider()
-            col_ctrl_1, col_ctrl_2 = st.columns([1, 3])
+            col_ctrl_1, col_ctrl_2 = st.columns([1, 4])
             with col_ctrl_1:
                 mes = st.selectbox("📅 Període:", mesos_ordenats)
             with col_ctrl_2:
-                filtre_cats = ["TOTS"] + list(df_config['Categoria'].unique())
-                cat_filter = st.selectbox("🔍 Filtrar Departament:", filtre_cats)
+                opcions_cat = ["TOTS"] + sorted(list(df_config['Categoria'].unique()))
+                cat_filter = st.radio("Departament:", opcions_cat, horizontal=True)
 
-            # --- CÀLCULS ---
+            # --- MOTOR DE CÀLCUL ---
             df_reg_mes = df_registre[df_registre['Mes_Any'] == mes].copy()
             df_hores = df_reg_mes.groupby('Activitat_Join')['Hores_Fetes'].sum().reset_index()
             
@@ -132,12 +153,12 @@ if url_master:
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
             df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
             
-            # FILTRATGE
+            # FILTRATGE PER VISUALITZACIÓ
             df_view = df_final.copy()
             if cat_filter != "TOTS":
                 df_view = df_view[df_view['Categoria'] == cat_filter]
 
-            # --- KPIS ---
+            # --- PANEL KPIS PRINCIPALS ---
             tot_ing = df_view['Ingressos_Previstos'].sum()
             tot_ben = df_view['Marge_Real'].sum()
             tot_students = df_view['Num_Alumnes'].sum()
@@ -146,50 +167,20 @@ if url_master:
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("👥 Alumnes", f"{tot_students:.0f}")
             k2.metric("Facturació", f"{tot_ing:,.0f} €")
-            k3.metric("Marge %", f"{marge_pc:.1f} %")
+            k3.metric("Marge Comercial", f"{marge_pc:.1f} %")
             k4.metric("Benefici Net", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
 
             st.markdown("---")
             
-            # --- SISTEMA DE PESTANYES VISUALS ---
-            tab1, tab2 = st.tabs(["🗺️ Mapa Visual (Treemap)", "📊 Rànquing Comparatiu"])
+            # --- ANALÍTICA AVANÇADA (TABS) ---
+            tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu Estratègica", "📈 Tendència"])
             
             df_chart = df_view if cat_filter != "TOTS" else df_final
 
+            # TAB 1: RÀNQUING (El que li agrada)
             with tab1:
-                st.caption("La mida dels quadres indica el nombre d'alumnes. El color indica el departament.")
                 if not df_chart.empty:
-                    # TREEMAP: Molt millor per a moltes dades que el Sunburst
-                    fig_tree = px.treemap(
-                        df_chart, 
-                        path=['Categoria', 'Activitat'], 
-                        values='Num_Alumnes',
-                        color='Categoria',
-                        color_discrete_sequence=px.colors.qualitative.Pastel,
-                        # Aquesta línia neteja el TOOLTIP (treu id, parent, labels...)
-                        custom_data=['Marge_Real', 'Ingressos_Previstos']
-                    )
-                    
-                    # Disseny del tooltip net i professional
-                    fig_tree.update_traces(
-                        hovertemplate="<b>%{label}</b><br>👥 Alumnes: %{value}<br>💰 Benefici: %{customdata[0]:,.0f} €<extra></extra>",
-                        textinfo="label+value"
-                    )
-
-                    fig_tree.update_layout(
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='white', size=15),
-                        margin=dict(t=0, l=0, r=0, b=0),
-                        height=550
-                    )
-                    st.plotly_chart(fig_tree, use_container_width=True)
-
-            with tab2:
-                st.caption("Rànquing de rendibilitat per activitat.")
-                if not df_chart.empty:
-                    # BAR CHART INTERACTIU
-                    df_sorted_bar = df_chart.sort_values('Marge_Real', ascending=True) # Per veure els millors a dalt
+                    df_sorted_bar = df_chart.sort_values('Marge_Real', ascending=True)
                     fig_bar = px.bar(
                         df_sorted_bar,
                         x='Marge_Real',
@@ -197,56 +188,103 @@ if url_master:
                         orientation='h',
                         text='Marge_Real',
                         color='Marge_Real',
-                        color_continuous_scale=['#EF4444', '#10B981'], # Vermell a Verd
-                        custom_data=['Num_Alumnes']
+                        color_continuous_scale=['#EF4444', '#10B981'],
+                        title="Classificació per Benefici Real (€)"
                     )
-                    
-                    # Neteja visual
-                    fig_bar.update_traces(
-                        texttemplate='%{text:.0f} €', 
-                        textposition='outside',
-                        hovertemplate="<b>%{y}</b><br>Benefici: %{x:.0f} €<br>Alumnes: %{customdata[0]}<extra></extra>"
-                    )
-                    
+                    fig_bar.update_traces(texttemplate='%{text:.0f} €', textposition='outside')
                     fig_bar.update_layout(
-                        xaxis_title="Benefici (€)",
-                        yaxis_title=None,
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)',
                         font=dict(color='white'),
-                        showlegend=False,
-                        height=max(400, len(df_chart)*30) # Alçada automàtica segons num activitats
+                        xaxis_title=None,
+                        yaxis_title=None,
+                        height=max(400, len(df_chart)*30),
+                        margin=dict(l=0, r=0, t=30, b=0)
                     )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-            # --- LLISTAT DETALLAT ---
-            st.markdown("### 📋 Detall Fitxes")
-            
+            # TAB 2: MATRIU ESTRATÈGICA (Substitut del Mapa Visual)
+            with tab2:
+                st.info("💡 **Com llegir-ho:** A la dreta activitats amb molts alumnes. A dalt activitats amb molt benefici.")
+                if not df_chart.empty:
+                    # Scatter Plot: Eix X = Alumnes, Eix Y = Benefici
+                    fig_matrix = px.scatter(
+                        df_chart,
+                        x="Num_Alumnes",
+                        y="Marge_Real",
+                        color="Categoria",
+                        size="Ingressos_Previstos", # La bola és més gran si factura més
+                        hover_name="Activitat",
+                        text="Activitat",
+                        color_discrete_sequence=px.colors.qualitative.Pastel
+                    )
+                    
+                    # Línia de "Break-even" (Benefici 0)
+                    fig_matrix.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Llindar Rentabilitat")
+                    
+                    fig_matrix.update_traces(textposition='top center')
+                    fig_matrix.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)', # Grid fosc suau
+                        font=dict(color='white'),
+                        xaxis=dict(title="Volum d'Alumnes", showgrid=True, gridcolor='#374151'),
+                        yaxis=dict(title="Benefici Net (€)", showgrid=True, gridcolor='#374151'),
+                        height=500,
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_matrix, use_container_width=True)
+
+            # TAB 3: TENDÈNCIA (Nou)
+            with tab3:
+                # Càlcul ràpid d'evolució (agrupat per mesos global)
+                try:
+                    df_trend = df_registre.groupby('Mes_Any')['Hores_Fetes'].sum().reset_index()
+                    if not df_trend.empty:
+                        fig_line = px.line(
+                            df_trend, x='Mes_Any', y='Hores_Fetes', 
+                            markers=True, 
+                            title="Evolució d'Hores Realitzades"
+                        )
+                        fig_line.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white'),
+                            xaxis_title=None,
+                            yaxis_title="Hores Totals",
+                            height=400
+                        )
+                        fig_line.update_traces(line_color='#8B5CF6', line_width=4)
+                        st.plotly_chart(fig_line, use_container_width=True)
+                    else:
+                        st.caption("No hi ha prou dades històriques encara.")
+                except:
+                    st.caption("Falten dades de dates per mostrar la tendència.")
+
+            # --- FITXES DE DETALL ---
+            st.subheader("📋 Detall d'Activitats")
             if not df_view.empty:
                 df_sorted = df_view.sort_values(by='Marge_Real', ascending=False)
-                
                 for index, row in df_sorted.iterrows():
                     ben = row['Marge_Real']
                     nom = row['Activitat']
                     icon = get_icon(row['Categoria'])
                     ing = row['Ingressos_Previstos']
                     
-                    # Targeta
-                    with st.expander(f"{icon} {nom}  |  Benefici: {ben:,.0f} €"):
-                        col_a, col_b = st.columns([1,3])
-                        with col_a:
-                            st.metric("Alumnes", f"{row['Num_Alumnes']:.0f}")
-                        with col_b:
-                            if ing > 0:
-                                eficiencia = max(0, min(1.0, ben / ing))
-                                st.progress(eficiencia)
-                                st.caption(f"Marge: {eficiencia*100:.1f}%")
-                            
-                            st.write(f"**Cost Nómina:** {row['Cost_Nomina']:.2f}€ | **Material:** {row['Cost_Material_Fix']:.2f}€")
-            else:
-                st.warning("No hi ha dades per mostrar.")
-
+                    with st.expander(f"{icon} {nom}  |  {ben:,.0f} €", expanded=False):
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Alumnes", f"{row['Num_Alumnes']:.0f}")
+                        c2.metric("Costos", f"{row['Despeses']:.0f} €")
+                        
+                        # Semàfor visual
+                        color_t = "green" if ben > 0 else "red"
+                        c3.markdown(f"**Resultat:** :{color_t}[{ben:,.0f} €]")
+                        
+                        if ing > 0:
+                            st.progress(max(0, min(1.0, ben / ing)))
+            
     except Exception as e:
-        st.error(f"⚠️ Error de càrrega: {e}")
+        st.error(f"⚠️ Error crític: {e}")
+        st.info("Verifiqui que el full de càlcul tingui les columnes: 'Activitat', 'Preu_Alumne', 'Num_Alumnes', etc.")
+
 else:
     st.info("👈 Introdueixi la URL del full de càlcul per començar.")
