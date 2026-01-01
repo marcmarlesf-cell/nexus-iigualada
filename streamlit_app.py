@@ -32,7 +32,7 @@ st.markdown("""
 # --- CAPÇALERA ---
 c_head_1, c_head_2 = st.columns([3,1])
 with c_head_1: st.title("🎓 Control de Gestió (MBA)")
-with c_head_2: st.caption("v19.0 Override Puntual")
+with c_head_2: st.caption("v18.0 Històric Intel·ligent")
 
 # --- BARRA LATERAL ---
 st.sidebar.header("⚙️ Connexió de Dades")
@@ -86,7 +86,7 @@ def carregar_dades_smart(url):
                 
                 df_reg['Hores_Fetes'] = df_reg['Hores_Fetes'].apply(netejar_numero)
                 
-                # Detectar columna d'alumnes reals (MANUAL)
+                # Detectar columna d'alumnes reals
                 col_var_alumnes = None
                 for c in df_reg.columns:
                     if 'ALUMNE' in c.upper() and ('MES' in c.upper() or 'REAL' in c.upper() or 'ACTUAL' in c.upper()):
@@ -95,9 +95,10 @@ def carregar_dades_smart(url):
                 
                 if col_var_alumnes:
                     df_reg['Alumnes_Input'] = df_reg[col_var_alumnes].apply(netejar_numero)
-                    # A V19 NO convertim 0 a NA, volem que 0 o buit sigui ignorat després
+                    # Convertim els 0 a NaN (Buit) per poder fer l'arrossegament de dades
+                    df_reg['Alumnes_Input'] = df_reg['Alumnes_Input'].replace(0, pd.NA)
                 else:
-                    df_reg['Alumnes_Input'] = 0.0
+                    df_reg['Alumnes_Input'] = pd.NA
 
                 df_reg['Data_DT'] = pd.to_datetime(df_reg['Data'], dayfirst=True, errors='coerce')
                 df_reg['Mes_Any'] = df_reg['Data_DT'].dt.strftime('%Y-%m')
@@ -125,35 +126,61 @@ if url_master:
         df_final = df_config.copy()
         if 'Num_Alumnes_Base' not in df_final.columns: df_final['Num_Alumnes_Base'] = 0
 
+        # --- EL COR DE LA V18: CÀLCUL HISTÒRIC AMB EFECTE DÒMINO ---
+        if df_registre is not None:
+            # 1. Ordenar cronològicament (Vital per l'efecte dòmino)
+            df_registre = df_registre.sort_values('Data_DT', ascending=True)
+            
+            # 2. Unir amb la configuració BASE per tenir un punt de partida
+            # Creem un dataframe temporal per fer el càlcul
+            df_calcul = df_registre.copy()
+            
+            # 3. Propagació (Forward Fill) per Activitat
+            # Aquesta línia màgica omple els buits amb el valor del mes anterior
+            df_calcul['Alumnes_Reals'] = df_calcul.groupby('Activitat_Join')['Alumnes_Input'].ffill()
+            
+            # 4. Si encara queden buits (perquè és el primer mes i no s'ha posat res), agafar Base
+            # Fem un merge temporal per agafar la base
+            df_calcul = pd.merge(df_calcul, df_config[['Activitat_Join', 'Num_Alumnes_Base']], on='Activitat_Join', how='left')
+            df_calcul['Alumnes_Reals'] = df_calcul['Alumnes_Reals'].fillna(df_calcul['Num_Alumnes_Base'])
+            
+            # Actualitzem el registre principal amb aquestes dades "netes"
+            df_registre = df_calcul
+
         # --- SELECTOR DE MESOS ---
         st.divider()
         c1, c2 = st.columns([1, 4])
+        
+        alumnes_mes_anterior = {}
         
         if df_registre is not None:
             mesos = sorted(df_registre['Mes_Any'].dropna().unique(), reverse=True)
             if len(mesos) > 0:
                 with c1: mes = st.selectbox("📅 Període d'Anàlisi:", mesos)
                 
+                # --- Preparar comparativa mes anterior ---
+                idx_actual = mesos.index(mes)
+                if idx_actual + 1 < len(mesos):
+                    mes_prev = mesos[idx_actual + 1]
+                    df_prev = df_registre[df_registre['Mes_Any'] == mes_prev]
+                    # Ja tenim el càlcul real fet pel dòmino, només cal agafar-lo
+                    series_prev = df_prev.set_index('Activitat_Join')['Alumnes_Reals']
+                    # Si hi ha duplicats (mateixa activitat varies vegades al mes), agafem el màxim o la mitjana
+                    series_prev = df_prev.groupby('Activitat_Join')['Alumnes_Reals'].max()
+                    alumnes_mes_anterior = series_prev.to_dict()
+
                 # --- DADES DEL MES ACTUAL ---
                 df_reg_mes = df_registre[df_registre['Mes_Any'] == mes].copy()
                 
-                # Agrupem: Hores es sumen, Alumnes Input agafem el màxim que hagi posat
+                # Agrupem (Hores sumades, Alumnes Reals ja venen calculats i propagats)
                 df_agrupat = df_reg_mes.groupby('Activitat_Join').agg({
                     'Hores_Fetes': 'sum',
-                    'Alumnes_Input': 'max' 
+                    'Alumnes_Reals': 'max' # Agafem el màxim perquè gràcies al ffill ja és constant aquell mes
                 }).reset_index()
                 
                 df_final = pd.merge(df_config, df_agrupat, on='Activitat_Join', how='left')
                 df_final['Hores_Fetes'] = df_final['Hores_Fetes'].fillna(0)
-                
-                # --- LÒGICA V19: PRIORITAT DIRECTA ---
-                # Si hi ha dada al registre (>0), la fem servir.
-                # Si està buida o és 0, fem servir la BASE de la configuració.
-                # (Sense memòria de mesos anteriors)
-                df_final['Num_Alumnes_Final'] = df_final.apply(
-                    lambda x: x['Alumnes_Input'] if pd.notna(x['Alumnes_Input']) and x['Alumnes_Input'] > 0 
-                    else x['Num_Alumnes_Base'], axis=1
-                )
+                df_final['Num_Alumnes_Final'] = df_final['Alumnes_Reals'].fillna(df_final['Num_Alumnes_Base'])
                 
             else:
                 with c1: st.info("Sense dades temporals")
@@ -228,22 +255,17 @@ if url_master:
 
         with tab3: # TENDÈNCIA
             if df_registre is not None and len(mesos) > 0:
-                # Per la tendència, també apliquem la lògica V19 (sense memòria)
-                df_trend_full = pd.merge(df_registre, df_config[['Activitat_Join', 'Preu_Alumne', 'Preu_Hora_Monitor', 'Cost_Material_Fix', 'Num_Alumnes_Base']], on='Activitat_Join', how='left')
+                # El df_registre JA TÉ la columna 'Alumnes_Reals' ben calculada amb l'històric (ffill)
+                # Només hem de fer el merge per preus i calcular
+                df_trend_full = pd.merge(df_registre, df_config[['Activitat_Join', 'Preu_Alumne', 'Preu_Hora_Monitor', 'Cost_Material_Fix']], on='Activitat_Join', how='left')
                 
-                # Lògica V19 aplicada a l'històric
-                df_trend_full['Alumnes_Calc'] = df_trend_full.apply(
-                    lambda x: x['Alumnes_Input'] if pd.notna(x['Alumnes_Input']) and x['Alumnes_Input'] > 0 
-                    else x['Num_Alumnes_Base'], axis=1
-                )
-
                 df_trend_full['Cost_Total'] = (df_trend_full['Hores_Fetes'] * df_trend_full['Preu_Hora_Monitor']) + df_trend_full['Cost_Material_Fix']
-                df_trend_full['Ingressos_Calc'] = df_trend_full['Preu_Alumne'] * df_trend_full['Alumnes_Calc']
+                df_trend_full['Ingressos_Calc'] = df_trend_full['Preu_Alumne'] * df_trend_full['Alumnes_Reals']
                 df_trend_full['Benefici_Mes'] = df_trend_full['Ingressos_Calc'] - df_trend_full['Cost_Total']
                 
                 df_trend_final = df_trend_full.groupby('Mes_Any')['Benefici_Mes'].sum().reset_index()
                 
-                fig_ben = px.line(df_trend_final, x='Mes_Any', y='Benefici_Mes', markers=True, title="Resultat Operatiu (Mes a Mes)")
+                fig_ben = px.line(df_trend_final, x='Mes_Any', y='Benefici_Mes', markers=True, title="Resultat Operatiu (Històric Real)")
                 fig_ben.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                                     font=dict(color='white'), yaxis_title="EBITDA (€)", height=400)
                 fig_ben.update_traces(line_color='#10B981', line_width=4, fill='tozeroy')
@@ -256,13 +278,19 @@ if url_master:
                 icon = get_icon(row['Categoria']) if 'Categoria' in row else "📝"
                 
                 alumnes_act = row['Num_Alumnes_Final']
+                nom_act = row['Activitat_Join']
+                delta_str = ""
+                
+                if nom_act in alumnes_mes_anterior:
+                    prev = alumnes_mes_anterior[nom_act]
+                    diff = alumnes_act - prev
+                    if diff > 0: delta_str = f" (🔺 +{diff:.0f})"
+                    elif diff < 0: delta_str = f" (🔻 {diff:.0f})"
                 
                 with st.expander(f"{icon} {row['Activitat']} | {row['Marge_Real']:,.0f} €", expanded=False):
                     c_a, c_b = st.columns([1,3])
                     with c_a:
-                        # Indiquem si és la dada Real (Input) o la Base (Config)
-                        origen = " (Manual)" if row['Alumnes_Input'] > 0 else " (Base)"
-                        st.metric("Alumnes", f"{alumnes_act:.0f}{origen}")
+                        st.metric("Alumnes", f"{alumnes_act:.0f}{delta_str}")
                         st.metric("Hores", f"{row['Hores_Fetes']:.1f} h")
                     with c_b:
                         col_in, col_out = st.columns(2)
