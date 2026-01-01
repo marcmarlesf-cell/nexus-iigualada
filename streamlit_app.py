@@ -24,18 +24,20 @@ st.markdown("""
     .stTabs [aria-selected="true"] { background-color: #7C3AED !important; color: white !important; }
     
     .streamlit-expanderHeader { background-color: #1F2937 !important; color: white !important; border-radius: 8px; }
+    
+    .stProgress > div > div > div > div { background-color: #3B82F6; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- CAPÇALERA ---
 c_head_1, c_head_2 = st.columns([3,1])
-with c_head_1: st.title("🎓 Marc Marlés - Estratègia")
-with c_head_2: st.caption("v14.0 Smart Hunter")
+with c_head_1: st.title("🎓 Control de Gestió (MBA)")
+with c_head_2: st.caption("v18.0 Històric Intel·ligent")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("⚙️ Connexió")
-url_master = st.sidebar.text_input("URL Master Excel", help="Només l'enllaç del Google Sheet.")
-if st.sidebar.button("🔄 Refrescar", use_container_width=True):
+st.sidebar.header("⚙️ Connexió de Dades")
+url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç al Google Sheet.")
+if st.sidebar.button("🔄 Actualitzar Dades", use_container_width=True):
     st.cache_data.clear()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -57,46 +59,54 @@ def get_icon(categoria):
 
 # --- MOTOR DE CERCA INTEL·LIGENT ---
 def carregar_dades_smart(url):
-    """
-    Busca automàticament les pestanyes correctes basant-se en el contingut
-    de les capçaleres, ignorant pestanyes de nòmines o càlculs.
-    """
     df_conf = None
     df_reg = None
-    log_missatges = []
-
-    # Iterem sobre les primeres 5 pestanyes (per si la bona no és la primera)
+    
     for i in range(5):
         try:
             df_temp = conn.read(spreadsheet=url, worksheet=i)
             cols = list(df_temp.columns)
             
-            # 1. IDENTIFICAR CONFIGURACIÓ
-            # Busquem les columnes exactes de la teva captura: 'Preu_Alumne' i 'Num_Alumnes'
-            if 'Preu_Alumne' in cols and 'Num_Alumnes' in cols:
+            # Identificar CONFIGURACIÓ
+            if 'Preu_Alumne' in cols and ('Num_Alumnes' in cols or 'Alumnes' in cols):
                 df_conf = df_temp
-                # Assegurar tipus numèrics
-                for c in ['Preu_Alumne', 'Num_Alumnes', 'Cost_Material_Fix', 'Preu_Hora_Monitor']:
+                col_alumnes = 'Num_Alumnes' if 'Num_Alumnes' in df_conf.columns else 'Alumnes'
+                df_conf = df_conf.rename(columns={col_alumnes: 'Num_Alumnes_Base'})
+                
+                for c in ['Preu_Alumne', 'Num_Alumnes_Base', 'Cost_Material_Fix', 'Preu_Hora_Monitor']:
                     if c in df_conf.columns: df_conf[c] = df_conf[c].apply(netejar_numero)
                 
-                # Càlculs base
-                df_conf['Ingressos_Previstos'] = df_conf['Preu_Alumne'] * df_conf['Num_Alumnes']
                 df_conf['Activitat_Join'] = df_conf['Activitat'].astype(str).str.strip().str.upper()
             
-            # 2. IDENTIFICAR REGISTRE
-            # Busquem les columnes exactes de la teva captura: 'Hores_Fetes' i 'Data'
-            elif 'Hores_Fetes' in cols and 'Data' in cols:
+            # Identificar REGISTRE
+            elif ('Hores_Fetes' in cols or 'Hores' in cols) and 'Data' in cols:
                 df_reg = df_temp
-                # Neteja
+                if 'Hores' in df_reg.columns and 'Hores_Fetes' not in df_reg.columns:
+                    df_reg = df_reg.rename(columns={'Hores': 'Hores_Fetes'})
+                
                 df_reg['Hores_Fetes'] = df_reg['Hores_Fetes'].apply(netejar_numero)
+                
+                # Detectar columna d'alumnes reals
+                col_var_alumnes = None
+                for c in df_reg.columns:
+                    if 'ALUMNE' in c.upper() and ('MES' in c.upper() or 'REAL' in c.upper() or 'ACTUAL' in c.upper()):
+                        col_var_alumnes = c
+                        break
+                
+                if col_var_alumnes:
+                    df_reg['Alumnes_Input'] = df_reg[col_var_alumnes].apply(netejar_numero)
+                    # Convertim els 0 a NaN (Buit) per poder fer l'arrossegament de dades
+                    df_reg['Alumnes_Input'] = df_reg['Alumnes_Input'].replace(0, pd.NA)
+                else:
+                    df_reg['Alumnes_Input'] = pd.NA
+
                 df_reg['Data_DT'] = pd.to_datetime(df_reg['Data'], dayfirst=True, errors='coerce')
                 df_reg['Mes_Any'] = df_reg['Data_DT'].dt.strftime('%Y-%m')
                 df_reg['Activitat_Join'] = df_reg['Activitat'].astype(str).str.strip().str.upper()
 
-        except Exception as e:
-            pass # Si una pestanya falla o està buida, continuem buscant
-
-        # Si ja hem trobat les dues, parem de buscar per anar ràpid
+        except Exception:
+            pass
+        
         if df_conf is not None and df_reg is not None:
             break
             
@@ -105,85 +115,121 @@ def carregar_dades_smart(url):
 # --- APP PRINCIPAL ---
 if url_master:
     try:
-        # Cridem al "Hunter"
         df_config, df_registre = carregar_dades_smart(url_master)
 
-        # VALIDACIÓ: Si no trobem la configuració, no podem fer res
         if df_config is None:
-            st.error("❌ No he trobat la pestanya 'CONFIGURACIO'.")
-            st.info("Assegura't que el Excel té una pestanya amb les columnes: 'Preu_Alumne' i 'Num_Alumnes'.")
+            st.error("❌ No he trobat la pestanya de Configuració.")
             st.stop()
 
-        # PREPARACIÓ DE DADES
+        # PREPARACIÓ GLOBAL
         mes = "Global"
         df_final = df_config.copy()
+        if 'Num_Alumnes_Base' not in df_final.columns: df_final['Num_Alumnes_Base'] = 0
 
-        # Si tenim registre, creem el selector de mesos
+        # --- EL COR DE LA V18: CÀLCUL HISTÒRIC AMB EFECTE DÒMINO ---
+        if df_registre is not None:
+            # 1. Ordenar cronològicament (Vital per l'efecte dòmino)
+            df_registre = df_registre.sort_values('Data_DT', ascending=True)
+            
+            # 2. Unir amb la configuració BASE per tenir un punt de partida
+            # Creem un dataframe temporal per fer el càlcul
+            df_calcul = df_registre.copy()
+            
+            # 3. Propagació (Forward Fill) per Activitat
+            # Aquesta línia màgica omple els buits amb el valor del mes anterior
+            df_calcul['Alumnes_Reals'] = df_calcul.groupby('Activitat_Join')['Alumnes_Input'].ffill()
+            
+            # 4. Si encara queden buits (perquè és el primer mes i no s'ha posat res), agafar Base
+            # Fem un merge temporal per agafar la base
+            df_calcul = pd.merge(df_calcul, df_config[['Activitat_Join', 'Num_Alumnes_Base']], on='Activitat_Join', how='left')
+            df_calcul['Alumnes_Reals'] = df_calcul['Alumnes_Reals'].fillna(df_calcul['Num_Alumnes_Base'])
+            
+            # Actualitzem el registre principal amb aquestes dades "netes"
+            df_registre = df_calcul
+
+        # --- SELECTOR DE MESOS ---
+        st.divider()
+        c1, c2 = st.columns([1, 4])
+        
+        alumnes_mes_anterior = {}
+        
         if df_registre is not None:
             mesos = sorted(df_registre['Mes_Any'].dropna().unique(), reverse=True)
-            
-            st.divider()
-            c1, c2 = st.columns([1, 4])
-            
             if len(mesos) > 0:
-                with c1: mes = st.selectbox("📅 Període:", mesos)
-                # Filtrem per mes
+                with c1: mes = st.selectbox("📅 Període d'Anàlisi:", mesos)
+                
+                # --- Preparar comparativa mes anterior ---
+                idx_actual = mesos.index(mes)
+                if idx_actual + 1 < len(mesos):
+                    mes_prev = mesos[idx_actual + 1]
+                    df_prev = df_registre[df_registre['Mes_Any'] == mes_prev]
+                    # Ja tenim el càlcul real fet pel dòmino, només cal agafar-lo
+                    series_prev = df_prev.set_index('Activitat_Join')['Alumnes_Reals']
+                    # Si hi ha duplicats (mateixa activitat varies vegades al mes), agafem el màxim o la mitjana
+                    series_prev = df_prev.groupby('Activitat_Join')['Alumnes_Reals'].max()
+                    alumnes_mes_anterior = series_prev.to_dict()
+
+                # --- DADES DEL MES ACTUAL ---
                 df_reg_mes = df_registre[df_registre['Mes_Any'] == mes].copy()
-                # Agrupem hores
-                df_hores = df_reg_mes.groupby('Activitat_Join')['Hores_Fetes'].sum().reset_index()
-                # Fusionem amb la config
-                df_final = pd.merge(df_config, df_hores, on='Activitat_Join', how='left')
+                
+                # Agrupem (Hores sumades, Alumnes Reals ja venen calculats i propagats)
+                df_agrupat = df_reg_mes.groupby('Activitat_Join').agg({
+                    'Hores_Fetes': 'sum',
+                    'Alumnes_Reals': 'max' # Agafem el màxim perquè gràcies al ffill ja és constant aquell mes
+                }).reset_index()
+                
+                df_final = pd.merge(df_config, df_agrupat, on='Activitat_Join', how='left')
                 df_final['Hores_Fetes'] = df_final['Hores_Fetes'].fillna(0)
+                df_final['Num_Alumnes_Final'] = df_final['Alumnes_Reals'].fillna(df_final['Num_Alumnes_Base'])
+                
             else:
                 with c1: st.info("Sense dades temporals")
                 df_final['Hores_Fetes'] = 0
+                df_final['Num_Alumnes_Final'] = df_final['Num_Alumnes_Base']
         else:
-            # Si no troba registre, assumeix 0 hores però mostra la config
-            st.warning("⚠️ No trobo la pestanya 'REGISTRE_MENSUAL'. Mostrant només dades teòriques.")
             df_final['Hores_Fetes'] = 0
+            df_final['Num_Alumnes_Final'] = df_final['Num_Alumnes_Base']
 
-        # FILTRES
+        # Filtre Departament
         with c2:
             if 'Categoria' in df_config.columns:
                 cats = ["TOTS"] + sorted(list(df_config['Categoria'].unique()))
-                cat_filter = st.radio("Departament:", cats, horizontal=True)
+                cat_filter = st.radio("Unitat de Negoci:", cats, horizontal=True)
             else:
                 cat_filter = "TOTS"
 
-        # CÀLCULS ECONÒMICS FINALS
+        # CÀLCULS FINANCERS
+        df_final['Ingressos_Reals'] = df_final['Preu_Alumne'] * df_final['Num_Alumnes_Final']
         df_final['Cost_Nomina'] = df_final['Hores_Fetes'] * df_final['Preu_Hora_Monitor']
-        
-        # Gestió robusta de despeses
         if 'Cost_Material_Fix' in df_final.columns:
             df_final['Despeses'] = df_final['Cost_Nomina'] + df_final['Cost_Material_Fix']
         else:
             df_final['Despeses'] = df_final['Cost_Nomina']
+        df_final['Marge_Real'] = df_final['Ingressos_Reals'] - df_final['Despeses']
 
-        df_final['Marge_Real'] = df_final['Ingressos_Previstos'] - df_final['Despeses']
-
-        # APLICAR FILTRES DE VISUALITZACIÓ
+        # FILTRES VISUALS
         df_view = df_final.copy()
         if cat_filter != "TOTS" and 'Categoria' in df_view.columns:
             df_view = df_view[df_view['Categoria'] == cat_filter]
 
         # --- KPI DASHBOARD ---
-        tot_ing = df_view['Ingressos_Previstos'].sum()
+        tot_ing = df_view['Ingressos_Reals'].sum()
         tot_ben = df_view['Marge_Real'].sum()
-        tot_stu = df_view['Num_Alumnes'].sum()
+        tot_stu = df_view['Num_Alumnes_Final'].sum()
         marge_pct = (tot_ben / tot_ing * 100) if tot_ing > 0 else 0
 
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("👥 Alumnes", f"{tot_stu:.0f}")
-        k2.metric("Facturació", f"{tot_ing:,.0f} €")
-        k3.metric("Marge %", f"{marge_pct:.1f} %")
-        k4.metric("Benefici Net", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
+        k1.metric("👥 Alumnes Actius", f"{tot_stu:.0f}")
+        k2.metric("💶 Volum de Negoci", f"{tot_ing:,.0f} €")
+        k3.metric("📊 Marge Comercial", f"{marge_pct:.1f} %")
+        k4.metric("💰 Benefici Operatiu", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
 
         st.markdown("---")
 
-        # --- PESTANYES VISUALS ---
-        tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu Estratègica", "📈 Tendència"])
+        # --- TABS ---
+        tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu BCG", "📈 Evolució"])
 
-        with tab1: # RANKING (BAR CHART)
+        with tab1: # RÀNQUING
             if not df_view.empty:
                 df_sorted = df_view.sort_values('Marge_Real', ascending=True)
                 fig = px.bar(df_sorted, x='Marge_Real', y='Activitat', orientation='h',
@@ -195,44 +241,70 @@ if url_master:
                                   height=max(400, len(df_view)*35))
                 st.plotly_chart(fig, use_container_width=True)
 
-        with tab2: # MATRIU (SCATTER)
+        with tab2: # MATRIU
             if not df_view.empty:
-                fig_m = px.scatter(df_view, x="Num_Alumnes", y="Marge_Real",
+                fig_m = px.scatter(df_view, x="Num_Alumnes_Final", y="Marge_Real",
                                    color="Categoria" if "Categoria" in df_view.columns else None,
-                                   size="Ingressos_Previstos", hover_name="Activitat", text="Activitat")
-                fig_m.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Punt d'equilibri")
-                fig_m.update_traces(textposition='top center')
+                                   size="Ingressos_Reals", hover_name="Activitat", text="Activitat")
+                fig_m.add_hline(y=0, line_dash="dash", line_color="white")
                 fig_m.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                                     font=dict(color='white'), height=500, showlegend=False,
-                                    xaxis=dict(showgrid=True, gridcolor='#374151', title="Volum Alumnes"),
-                                    yaxis=dict(showgrid=True, gridcolor='#374151', title="Benefici Net (€)"))
+                                    xaxis=dict(showgrid=True, gridcolor='#374151', title="Alumnes"),
+                                    yaxis=dict(showgrid=True, gridcolor='#374151', title="Benefici (€)"))
                 st.plotly_chart(fig_m, use_container_width=True)
 
-        with tab3: # TENDÈNCIA (LINE)
-            if df_registre is not None:
-                try:
-                    df_trend = df_registre.groupby('Mes_Any')['Hores_Fetes'].sum().reset_index()
-                    fig_l = px.line(df_trend, x='Mes_Any', y='Hores_Fetes', markers=True, title="Evolució Hores Monitors")
-                    fig_l.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                                        font=dict(color='white'), yaxis_title="Hores", height=400)
-                    fig_l.update_traces(line_color='#8B5CF6', line_width=4)
-                    st.plotly_chart(fig_l, use_container_width=True)
-                except:
-                    st.info("Falten dades històriques per fer la gràfica.")
-            else:
-                st.info("No s'ha detectat full de registre per mostrar tendències.")
+        with tab3: # TENDÈNCIA
+            if df_registre is not None and len(mesos) > 0:
+                # El df_registre JA TÉ la columna 'Alumnes_Reals' ben calculada amb l'històric (ffill)
+                # Només hem de fer el merge per preus i calcular
+                df_trend_full = pd.merge(df_registre, df_config[['Activitat_Join', 'Preu_Alumne', 'Preu_Hora_Monitor', 'Cost_Material_Fix']], on='Activitat_Join', how='left')
+                
+                df_trend_full['Cost_Total'] = (df_trend_full['Hores_Fetes'] * df_trend_full['Preu_Hora_Monitor']) + df_trend_full['Cost_Material_Fix']
+                df_trend_full['Ingressos_Calc'] = df_trend_full['Preu_Alumne'] * df_trend_full['Alumnes_Reals']
+                df_trend_full['Benefici_Mes'] = df_trend_full['Ingressos_Calc'] - df_trend_full['Cost_Total']
+                
+                df_trend_final = df_trend_full.groupby('Mes_Any')['Benefici_Mes'].sum().reset_index()
+                
+                fig_ben = px.line(df_trend_final, x='Mes_Any', y='Benefici_Mes', markers=True, title="Resultat Operatiu (Històric Real)")
+                fig_ben.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                    font=dict(color='white'), yaxis_title="EBITDA (€)", height=400)
+                fig_ben.update_traces(line_color='#10B981', line_width=4, fill='tozeroy')
+                st.plotly_chart(fig_ben, use_container_width=True)
 
-        # --- DETALL FINAL ---
-        st.subheader("📋 Fitxes Detall")
+        # --- DETALL ---
+        st.subheader("📋 Fitxes Operatives")
         if not df_view.empty:
             for i, row in df_view.sort_values('Marge_Real', ascending=False).iterrows():
                 icon = get_icon(row['Categoria']) if 'Categoria' in row else "📝"
-                with st.expander(f"{icon} {row['Activitat']} | {row['Marge_Real']:,.0f} €"):
-                    c_a, c_b = st.columns(2)
-                    c_a.write(f"**Ingressos:** {row['Ingressos_Previstos']:.0f}€ ({row['Num_Alumnes']:.0f} alumnes)")
-                    c_b.write(f"**Costos:** {row['Despeses']:.0f}€ ({row['Hores_Fetes']:.1f} hores)")
+                
+                alumnes_act = row['Num_Alumnes_Final']
+                nom_act = row['Activitat_Join']
+                delta_str = ""
+                
+                if nom_act in alumnes_mes_anterior:
+                    prev = alumnes_mes_anterior[nom_act]
+                    diff = alumnes_act - prev
+                    if diff > 0: delta_str = f" (🔺 +{diff:.0f})"
+                    elif diff < 0: delta_str = f" (🔻 {diff:.0f})"
+                
+                with st.expander(f"{icon} {row['Activitat']} | {row['Marge_Real']:,.0f} €", expanded=False):
+                    c_a, c_b = st.columns([1,3])
+                    with c_a:
+                        st.metric("Alumnes", f"{alumnes_act:.0f}{delta_str}")
+                        st.metric("Hores", f"{row['Hores_Fetes']:.1f} h")
+                    with c_b:
+                        col_in, col_out = st.columns(2)
+                        col_in.write(f"**Ingressos:** {row['Ingressos_Reals']:.0f} €")
+                        col_out.write(f"**Costos:** {row['Despeses']:.0f} €")
+                        
+                        st.write("Rendibilitat:")
+                        if row['Ingressos_Reals'] > 0:
+                            ratio = max(0.0, min(1.0, row['Marge_Real'] / row['Ingressos_Reals']))
+                            st.progress(ratio)
+                        else:
+                            st.progress(0)
 
     except Exception as e:
-        st.error(f"⚠️ Error inesperat: {e}")
+        st.error(f"⚠️ Error: {e}")
 else:
     st.info("👈 Introdueixi la URL del full de càlcul per començar.")
