@@ -8,36 +8,44 @@ import io
 # --- CONFIGURACIÓ DE PÀGINA ---
 st.set_page_config(page_title="Dashboard Extraescolars", layout="wide", page_icon="🎓")
 
-# --- ESTILS CSS PREMIUM ---
+# --- ESTILS CSS ADAPTABLES (NETEJA) ---
 st.markdown("""
 <style>
-    /* Fons Fosc Professional */
-    [data-testid="stAppViewContainer"] { background-color: #0E1117; }
-    [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
+    /* 1. Eliminem fons forçats perquè s'adapti al mòbil (Clar/Fosc) */
+    
+    /* 2. Amagar instruccions inputs */
     div[data-testid="InputInstructions"] > span:nth-child(1) { display: none; }
     
-    /* KPI Cards */
+    /* 3. Estil Targetes KPI (Neutre: Funciona en Blanc i en Negre) */
     div[data-testid="stMetric"] {
-        background-color: #1F2937; padding: 15px; border-radius: 12px; 
-        border: 1px solid #374151; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        background-color: rgba(128, 128, 128, 0.1); /* Fons semi-transparent subtil */
+        padding: 15px; 
+        border-radius: 12px; 
+        border: 1px solid rgba(128, 128, 128, 0.2); /* Vora suau */
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Tipografia */
-    h1, h2, h3, p, label, .briefing-title { color: #E5E7EB !important; font-family: 'Segoe UI', sans-serif; }
+    /* 4. Tabs més netes */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px;
+        padding: 8px 16px;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+    }
     
-    /* Tabs */
-    .stTabs [data-baseweb="tab"] { background-color: #111827; border-radius: 6px; color: #9CA3AF; border: 1px solid #374151; }
-    .stTabs [aria-selected="true"] { background-color: #7C3AED !important; color: white !important; }
+    /* 5. Expander més net */
+    .streamlit-expanderHeader { 
+        background-color: rgba(128, 128, 128, 0.05) !important; 
+        border-radius: 8px; 
+        font-weight: 600; 
+    }
     
-    /* Expander */
-    .streamlit-expanderHeader { background-color: #1F2937 !important; color: white !important; border-radius: 8px; font-weight: 600; }
-    
-    /* Badges (Etiquetes) */
-    .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; margin-right: 5px; }
-    .badge-star { background-color: #059669; color: white; border: 1px solid #34D399; } /* Diamant Verd */
-    .badge-warn { background-color: #D97706; color: white; } /* Taronja */
-    .badge-danger { background-color: #DC2626; color: white; } /* Vermell */
-    .badge-seed { background-color: #4B5563; color: #A7F3D0; border: 1px dashed #6EE7B7; } /* Llavor */
+    /* 6. Badges (Etiquetes) - Colors sòlids que es llegeixen bé sempre */
+    .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; margin-right: 5px; color: white;}
+    .badge-star { background-color: #059669; } /* Verd */
+    .badge-warn { background-color: #D97706; } /* Taronja */
+    .badge-danger { background-color: #DC2626; } /* Vermell */
+    .badge-seed { background-color: #4B5563; } /* Gris */
 
 </style>
 """, unsafe_allow_html=True)
@@ -45,7 +53,7 @@ st.markdown("""
 # --- CAPÇALERA ---
 c_head_1, c_head_2 = st.columns([3,1])
 with c_head_1: st.title("Dashboard extraescolars - Marc Marlés")
-with c_head_2: st.caption("v24.0 Master Edition")
+with c_head_2: st.caption("v25.0 Light Mode Ready")
 
 # --- BARRA LATERAL ---
 st.sidebar.header("⚙️ Eines de Gestió")
@@ -83,7 +91,7 @@ def get_smart_tags(row):
         
     return " ".join(tags)
 
-# --- MOTOR DE DADES (Smart Hunter) ---
+# --- MOTOR DE DADES ---
 def carregar_dades_smart(url):
     df_conf = None
     df_reg = None
@@ -132,27 +140,21 @@ if url_master:
         df_final = df_config.copy()
         if 'Num_Alumnes_Base' not in df_final.columns: df_final['Num_Alumnes_Base'] = 0
 
-        # CALCUL TRESORERIA ACUMULADA (HISTÒRIC)
         total_tresoreria_acumulada = 0
         df_historic_global = pd.DataFrame()
 
         if df_registre is not None:
-            # Ordenar i omplir forats (Lògica v18)
             df_registre = df_registre.sort_values('Data_DT', ascending=True)
             df_registre['Alumnes_Reals'] = df_registre.groupby('Activitat_Join')['Alumnes_Input'].ffill()
             df_registre = pd.merge(df_registre, df_config[['Activitat_Join', 'Num_Alumnes_Base']], on='Activitat_Join', how='left')
             df_registre['Alumnes_Reals'] = df_registre['Alumnes_Reals'].fillna(df_registre['Num_Alumnes_Base'])
 
-            # Càlcul complet històric
             df_hist_calc = pd.merge(df_registre, df_config[['Activitat_Join', 'Preu_Alumne', 'Preu_Hora_Monitor', 'Cost_Material_Fix']], on='Activitat_Join', how='left')
             df_hist_calc['Cost'] = (df_hist_calc['Hores_Fetes'] * df_hist_calc['Preu_Hora_Monitor']) + df_hist_calc['Cost_Material_Fix']
             df_hist_calc['Ingres'] = df_hist_calc['Preu_Alumne'] * df_hist_calc['Alumnes_Reals']
             df_hist_calc['Ben'] = df_hist_calc['Ingres'] - df_hist_calc['Cost']
             
-            # KPI NOU: Suma total històrica
             total_tresoreria_acumulada = df_hist_calc['Ben'].sum()
-            
-            # Per a gràfic evolució
             df_historic_global = df_hist_calc.groupby('Mes_Any')['Ben'].sum().reset_index()
 
         # SELECTOR
@@ -166,7 +168,6 @@ if url_master:
             if len(mesos) > 0:
                 with c1: mes = st.selectbox("📅 Període:", mesos)
                 
-                # Context mes anterior
                 idx = mesos.index(mes)
                 if idx + 1 < len(mesos):
                     prev_m = mesos[idx+1]
@@ -202,7 +203,7 @@ if url_master:
         if cat_filter != "TOTS" and 'Categoria' in df_view.columns:
             df_view = df_view[df_view['Categoria'] == cat_filter]
 
-        # EXPORTACIÓ
+        # EXPORT
         with st.sidebar:
             st.divider()
             st.subheader("📥 Exportació")
@@ -212,13 +213,12 @@ if url_master:
                 df_view[cols_export].to_excel(writer, sheet_name='Informe', index=False)
             st.download_button("Descarregar Excel", data=buffer, file_name=f"Report_{mes}.xlsx", mime="application/vnd.ms-excel")
 
-        # KPI PANEL (5 Columnes)
+        # KPIS
         tot_ing = df_view['Ingressos_Reals'].sum()
         tot_ben = df_view['Marge_Real'].sum()
         tot_stu = df_view['Num_Alumnes_Final'].sum()
         marge_pct = (tot_ben / tot_ing * 100) if tot_ing > 0 else 0
         
-        # Càlcul tresoreria filtrada
         tresoreria_show = total_tresoreria_acumulada
         if cat_filter != "TOTS" and df_registre is not None:
              df_hist_filt = pd.merge(df_registre, df_config[['Activitat_Join', 'Categoria']], on='Activitat_Join', how='left')
@@ -230,15 +230,13 @@ if url_master:
         k1.metric("👥 Alumnes", f"{tot_stu:.0f}")
         k2.metric("💶 Facturació", f"{tot_ing:,.0f} €")
         k3.metric("📊 Marge", f"{marge_pct:.1f} %")
-        k4.metric("💰 EBITDA (Mes)", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
-        
-        # EL NOU KPI DE TRESORERIA
-        k5.metric("🏦 Tresoreria Acumulada", f"{tresoreria_show:,.0f} €", help="Suma de tots els beneficis des de l'inici.")
+        k4.metric("💰 EBITDA", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
+        k5.metric("🏦 Tresoreria", f"{tresoreria_show:,.0f} €", help="Diners acumulats.")
 
         st.markdown("---")
 
-        # TABS VISUALS
-        tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu BCG", "📈 Evolució Històrica"])
+        # TABS VISUALS (ADAPTATS PER A MODE CLAR/FOSC)
+        tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu BCG", "📈 Evolució"])
         
         with tab1:
             if not df_view.empty:
@@ -246,7 +244,8 @@ if url_master:
                 fig = px.bar(df_sorted, x='Marge_Real', y='Activitat', orientation='h', text='Marge_Real', 
                              color='Marge_Real', color_continuous_scale=['#EF4444', '#10B981'])
                 fig.update_traces(texttemplate='%{text:.0f} €', textposition='outside')
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'),
+                # ELIMINAT: font=dict(color='white') -> Ara s'adapta sol
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                                   xaxis_title=None, yaxis_title=None, height=max(400, len(df_view)*35))
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -254,17 +253,20 @@ if url_master:
             if not df_view.empty:
                 fig_m = px.scatter(df_view, x="Num_Alumnes_Final", y="Marge_Real", color="Categoria" if "Categoria" in df_view else None,
                                    size="Ingressos_Reals", hover_name="Activitat", text="Activitat")
-                fig_m.add_hline(y=0, line_dash="dash", line_color="white")
-                fig_m.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), height=500, showlegend=False,
-                                    xaxis=dict(showgrid=True, gridcolor='#374151', title="Alumnes"),
-                                    yaxis=dict(showgrid=True, gridcolor='#374151', title="Benefici Total (€)"))
+                # Línia de fons gris fluix en lloc de blanc, per si fons és blanc
+                fig_m.add_hline(y=0, line_dash="dash", line_color="gray")
+                # ELIMINAT: font=dict(color='white')
+                fig_m.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, showlegend=False,
+                                    xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', title="Alumnes"),
+                                    yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', title="Benefici Total (€)"))
                 st.plotly_chart(fig_m, use_container_width=True)
 
         with tab3:
             if not df_historic_global.empty:
                 fig_ben = go.Figure()
                 fig_ben.add_trace(go.Scatter(x=df_historic_global['Mes_Any'], y=df_historic_global['Ben'], mode='lines+markers', name='Real', line=dict(color='#10B981', width=4)))
-                fig_ben.update_layout(title="Evolució Resultat Operatiu", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), yaxis_title="€", height=450)
+                # ELIMINAT: font=dict(color='white')
+                fig_ben.update_layout(title="Evolució Històrica", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis_title="€", height=450)
                 st.plotly_chart(fig_ben, use_container_width=True)
             else:
                 st.info("Falten dades històriques.")
