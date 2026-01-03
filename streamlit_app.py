@@ -8,44 +8,41 @@ import io
 # --- CONFIGURACIÓ DE PÀGINA ---
 st.set_page_config(page_title="Dashboard Extraescolars", layout="wide", page_icon="🎓")
 
-# --- ESTILS CSS ADAPTABLES (NETEJA) ---
+# --- ESTILS CSS (PREMIUM & NET) ---
 st.markdown("""
 <style>
-    /* 1. Eliminem fons forçats perquè s'adapti al mòbil (Clar/Fosc) */
-    
-    /* 2. Amagar instruccions inputs */
+    /* Neteja general */
     div[data-testid="InputInstructions"] > span:nth-child(1) { display: none; }
     
-    /* 3. Estil Targetes KPI (Neutre: Funciona en Blanc i en Negre) */
+    /* Targetes KPI */
     div[data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.1); /* Fons semi-transparent subtil */
+        background-color: rgba(128, 128, 128, 0.05);
         padding: 15px; 
-        border-radius: 12px; 
-        border: 1px solid rgba(128, 128, 128, 0.2); /* Vora suau */
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border-radius: 15px; 
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
     
-    /* 4. Tabs més netes */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    /* Tabs elegants (Scrollable en mòbil) */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 8px; 
+        overflow-x: auto; 
+        white-space: nowrap; 
+        padding-bottom: 5px; /* Espai per scroll bar invisible */
+    }
     .stTabs [data-baseweb="tab"] {
-        border-radius: 6px;
-        padding: 8px 16px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 20px;
+        padding: 6px 18px;
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        font-weight: 500;
     }
     
-    /* 5. Expander més net */
-    .streamlit-expanderHeader { 
-        background-color: rgba(128, 128, 128, 0.05) !important; 
-        border-radius: 8px; 
-        font-weight: 600; 
-    }
-    
-    /* 6. Badges (Etiquetes) - Colors sòlids que es llegeixen bé sempre */
-    .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; margin-right: 5px; color: white;}
-    .badge-star { background-color: #059669; } /* Verd */
-    .badge-warn { background-color: #D97706; } /* Taronja */
-    .badge-danger { background-color: #DC2626; } /* Vermell */
-    .badge-seed { background-color: #4B5563; } /* Gris */
+    /* Badges */
+    .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; margin-right: 5px; color: white;}
+    .badge-star { background-color: #059669; }
+    .badge-warn { background-color: #D97706; }
+    .badge-danger { background-color: #DC2626; }
+    .badge-seed { background-color: #4B5563; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -53,17 +50,17 @@ st.markdown("""
 # --- CAPÇALERA ---
 c_head_1, c_head_2 = st.columns([3,1])
 with c_head_1: st.title("Dashboard extraescolars - Marc Marlés")
-with c_head_2: st.caption("v25.0 Light Mode Ready")
+with c_head_2: st.caption("v27.0 Tabbed Organization")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("⚙️ Eines de Gestió")
-url_master = st.sidebar.text_input("URL Master Excel", help="Enllaç al Google Sheet.")
-if st.sidebar.button("🔄 Actualitzar Dades", use_container_width=True):
+st.sidebar.header("⚙️ Gestió")
+url_master = st.sidebar.text_input("URL Master Excel")
+if st.sidebar.button("🔄 Actualitzar", use_container_width=True):
     st.cache_data.clear()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- FUNCIONS AUXILIARS ---
+# --- FUNCIONS ---
 def netejar_numero(val):
     try:
         if isinstance(val, (int, float)): return float(val)
@@ -71,8 +68,7 @@ def netejar_numero(val):
         s = str(val).strip().replace('€', '')
         if ',' in s: s = s.replace('.', '').replace(',', '.')
         return float(s)
-    except:
-        return 0.0
+    except: return 0.0
 
 def get_icon(categoria):
     cat = str(categoria).upper().strip()
@@ -82,16 +78,13 @@ def get_smart_tags(row):
     tags = []
     marge_pct = (row['Marge_Real'] / row['Ingressos_Reals'] * 100) if row['Ingressos_Reals'] > 0 else 0
     alumnes = row['Num_Alumnes_Final']
-    
     if marge_pct < 0: tags.append('<span class="badge badge-danger">🔻 Dèficit</span>')
-    elif marge_pct < 15: tags.append(f'<span class="badge badge-warn">🟠 Marge Ajustat ({marge_pct:.0f}%)</span>')
+    elif marge_pct < 15: tags.append(f'<span class="badge badge-warn">🟠 Ajustat ({marge_pct:.0f}%)</span>')
     elif marge_pct > 40 and alumnes > 8: tags.append('<span class="badge badge-star">💎 Premium</span>')
-    
     if alumnes > 0 and alumnes < 6: tags.append('<span class="badge badge-seed">🌱 Potencial</span>')
-        
     return " ".join(tags)
 
-# --- MOTOR DE DADES ---
+# --- MOTOR DADES ---
 def carregar_dades_smart(url):
     df_conf = None
     df_reg = None
@@ -118,8 +111,7 @@ def carregar_dades_smart(url):
                         break
                 if col_var_alumnes:
                     df_reg['Alumnes_Input'] = df_reg[col_var_alumnes].apply(netejar_numero)
-                else:
-                    df_reg['Alumnes_Input'] = pd.NA
+                else: df_reg['Alumnes_Input'] = pd.NA
                 df_reg['Data_DT'] = pd.to_datetime(df_reg['Data'], dayfirst=True, errors='coerce')
                 df_reg['Mes_Any'] = df_reg['Data_DT'].dt.strftime('%Y-%m')
                 df_reg['Activitat_Join'] = df_reg['Activitat'].astype(str).str.strip().str.upper()
@@ -131,15 +123,11 @@ def carregar_dades_smart(url):
 if url_master:
     try:
         df_config, df_registre = carregar_dades_smart(url_master)
+        if df_config is None: st.stop()
 
-        if df_config is None:
-            st.error("❌ Error: No trobo configuració.")
-            st.stop()
-
-        # PREPARACIÓ DADES
+        # PREPARACIÓ
         df_final = df_config.copy()
         if 'Num_Alumnes_Base' not in df_final.columns: df_final['Num_Alumnes_Base'] = 0
-
         total_tresoreria_acumulada = 0
         df_historic_global = pd.DataFrame()
 
@@ -148,20 +136,20 @@ if url_master:
             df_registre['Alumnes_Reals'] = df_registre.groupby('Activitat_Join')['Alumnes_Input'].ffill()
             df_registre = pd.merge(df_registre, df_config[['Activitat_Join', 'Num_Alumnes_Base']], on='Activitat_Join', how='left')
             df_registre['Alumnes_Reals'] = df_registre['Alumnes_Reals'].fillna(df_registre['Num_Alumnes_Base'])
-
+            
             df_hist_calc = pd.merge(df_registre, df_config[['Activitat_Join', 'Preu_Alumne', 'Preu_Hora_Monitor', 'Cost_Material_Fix']], on='Activitat_Join', how='left')
             df_hist_calc['Cost'] = (df_hist_calc['Hores_Fetes'] * df_hist_calc['Preu_Hora_Monitor']) + df_hist_calc['Cost_Material_Fix']
             df_hist_calc['Ingres'] = df_hist_calc['Preu_Alumne'] * df_hist_calc['Alumnes_Reals']
             df_hist_calc['Ben'] = df_hist_calc['Ingres'] - df_hist_calc['Cost']
-            
             total_tresoreria_acumulada = df_hist_calc['Ben'].sum()
             df_historic_global = df_hist_calc.groupby('Mes_Any')['Ben'].sum().reset_index()
 
-        # SELECTOR
+        # CONTROLS
         st.divider()
-        c1, c2 = st.columns([1, 4])
+        c1, c2, c3 = st.columns([1, 1.5, 2.5])
         
         alumnes_mes_anterior = {}
+        df_view = df_final.copy()
         
         if df_registre is not None:
             mesos = sorted(df_registre['Mes_Any'].dropna().unique(), reverse=True)
@@ -180,7 +168,6 @@ if url_master:
                 df_final['Hores_Fetes'] = df_final['Hores_Fetes'].fillna(0)
                 df_final['Num_Alumnes_Final'] = df_final['Alumnes_Reals'].fillna(df_final['Num_Alumnes_Base'])
             else:
-                with c1: st.info("Sense Històric")
                 df_final['Hores_Fetes'] = 0
                 df_final['Num_Alumnes_Final'] = df_final['Num_Alumnes_Base']
         else:
@@ -189,9 +176,11 @@ if url_master:
 
         with c2:
             cats = ["TOTS"] + sorted(list(df_config['Categoria'].unique())) if 'Categoria' in df_config else ["TOTS"]
-            cat_filter = st.radio("Departament:", cats, horizontal=True)
+            cat_filter = st.selectbox("Departament:", cats)
+        
+        with c3:
+            search_term = st.text_input("🔍 Buscar Activitat", placeholder="Ex: Futbol...")
 
-        # CÀLCULS VIEW
         df_final['Ingressos_Reals'] = df_final['Preu_Alumne'] * df_final['Num_Alumnes_Final']
         df_final['Cost_Nomina'] = df_final['Hores_Fetes'] * df_final['Preu_Hora_Monitor']
         despesa_extra = df_final['Cost_Material_Fix'] if 'Cost_Material_Fix' in df_final else 0
@@ -199,19 +188,22 @@ if url_master:
         df_final['Marge_Real'] = df_final['Ingressos_Reals'] - df_final['Despeses']
         df_final['Benefici_Unitari'] = df_final.apply(lambda x: x['Marge_Real'] / x['Num_Alumnes_Final'] if x['Num_Alumnes_Final'] > 0 else 0, axis=1)
 
+        # FILTRES
         df_view = df_final.copy()
         if cat_filter != "TOTS" and 'Categoria' in df_view.columns:
             df_view = df_view[df_view['Categoria'] == cat_filter]
+        
+        if search_term:
+            df_view = df_view[df_view['Activitat'].str.contains(search_term, case=False, na=False)]
 
         # EXPORT
         with st.sidebar:
             st.divider()
-            st.subheader("📥 Exportació")
+            st.subheader("📥 Dades")
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                cols_export = ['Categoria', 'Activitat', 'Num_Alumnes_Final', 'Ingressos_Reals', 'Despeses', 'Marge_Real', 'Benefici_Unitari']
-                df_view[cols_export].to_excel(writer, sheet_name='Informe', index=False)
-            st.download_button("Descarregar Excel", data=buffer, file_name=f"Report_{mes}.xlsx", mime="application/vnd.ms-excel")
+                df_view.to_excel(writer, sheet_name='Informe', index=False)
+            st.download_button("Baixar Excel", data=buffer, file_name=f"Report_{mes}.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
 
         # KPIS
         tot_ing = df_view['Ingressos_Reals'].sum()
@@ -230,75 +222,86 @@ if url_master:
         k1.metric("👥 Alumnes", f"{tot_stu:.0f}")
         k2.metric("💶 Facturació", f"{tot_ing:,.0f} €")
         k3.metric("📊 Marge", f"{marge_pct:.1f} %")
-        k4.metric("💰 EBITDA", f"{tot_ben:,.0f} €", delta=f"{tot_ben:,.0f} €")
-        k5.metric("🏦 Tresoreria", f"{tresoreria_show:,.0f} €", help="Diners acumulats.")
+        k4.metric("💰 EBITDA", f"{tot_ben:,.0f} €")
+        k5.metric("🏦 Tresoreria", f"{tresoreria_show:,.0f} €", help="Total Històric")
 
         st.markdown("---")
 
-        # TABS VISUALS (ADAPTATS PER A MODE CLAR/FOSC)
-        tab1, tab2, tab3 = st.tabs(["📊 Rànquing", "🎯 Matriu BCG", "📈 Evolució"])
+        # --- ESTRUCTURA DE PESTANYES COMPLETA ---
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📊 Rànquing", 
+            "🍰 Distribució", 
+            "🎯 Matriu BCG", 
+            "📈 Evolució", 
+            "📋 Fitxes Detall"
+        ])
         
-        with tab1:
+        with tab1: # RÀNQUING
             if not df_view.empty:
                 df_sorted = df_view.sort_values('Marge_Real', ascending=True)
                 fig = px.bar(df_sorted, x='Marge_Real', y='Activitat', orientation='h', text='Marge_Real', 
                              color='Marge_Real', color_continuous_scale=['#EF4444', '#10B981'])
                 fig.update_traces(texttemplate='%{text:.0f} €', textposition='outside')
-                # ELIMINAT: font=dict(color='white') -> Ara s'adapta sol
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                                  xaxis_title=None, yaxis_title=None, height=max(400, len(df_view)*35))
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                  xaxis_title=None, yaxis_title=None, xaxis=dict(showgrid=False),
+                                  height=max(400, len(df_view)*35))
                 st.plotly_chart(fig, use_container_width=True)
 
-        with tab2:
+        with tab2: # DONUT (DISTRIBUCIÓ)
+            if not df_view.empty and 'Categoria' in df_view.columns:
+                fig_pie = px.pie(df_view, values='Ingressos_Reals', names='Categoria', hole=0.6,
+                                 color_discrete_sequence=px.colors.qualitative.Prism)
+                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                fig_pie.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', height=400)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("Necessites tenir la columna 'Categoria' a l'Excel per veure aquest gràfic.")
+
+        with tab3: # MATRIU
             if not df_view.empty:
                 fig_m = px.scatter(df_view, x="Num_Alumnes_Final", y="Marge_Real", color="Categoria" if "Categoria" in df_view else None,
                                    size="Ingressos_Reals", hover_name="Activitat", text="Activitat")
-                # Línia de fons gris fluix en lloc de blanc, per si fons és blanc
                 fig_m.add_hline(y=0, line_dash="dash", line_color="gray")
-                # ELIMINAT: font=dict(color='white')
                 fig_m.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, showlegend=False,
                                     xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', title="Alumnes"),
-                                    yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', title="Benefici Total (€)"))
+                                    yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', title="Benefici (€)"))
                 st.plotly_chart(fig_m, use_container_width=True)
 
-        with tab3:
+        with tab4: # EVOLUCIÓ
             if not df_historic_global.empty:
                 fig_ben = go.Figure()
-                fig_ben.add_trace(go.Scatter(x=df_historic_global['Mes_Any'], y=df_historic_global['Ben'], mode='lines+markers', name='Real', line=dict(color='#10B981', width=4)))
-                # ELIMINAT: font=dict(color='white')
-                fig_ben.update_layout(title="Evolució Històrica", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis_title="€", height=450)
+                fig_ben.add_trace(go.Scatter(x=df_historic_global['Mes_Any'], y=df_historic_global['Ben'], 
+                                             mode='lines+markers', name='Real', 
+                                             line=dict(color='#10B981', width=4, shape='spline')))
+                fig_ben.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                      yaxis_title="Benefici (€)", height=400,
+                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.1)'))
                 st.plotly_chart(fig_ben, use_container_width=True)
             else:
                 st.info("Falten dades històriques.")
 
-        # FITXES DETALL
-        st.subheader("📋 Fitxes Operatives")
-        if not df_view.empty:
-            for i, row in df_view.sort_values('Marge_Real', ascending=False).iterrows():
-                icon = get_icon(row['Categoria']) if 'Categoria' in row else "📝"
-                alumnes = row['Num_Alumnes_Final']
-                delta = ""
-                if row['Activitat_Join'] in alumnes_mes_anterior:
-                    diff = alumnes - alumnes_mes_anterior[row['Activitat_Join']]
-                    if diff != 0: delta = f" ({'+' if diff>0 else ''}{diff:.0f})"
-                
-                tags_html = get_smart_tags(row)
-                
-                with st.expander(f"{icon} {row['Activitat']} | {row['Marge_Real']:,.0f} €", expanded=False):
-                    st.markdown(tags_html, unsafe_allow_html=True)
-                    st.write("")
-                    c_a, c_b, c_c = st.columns([1, 1.5, 1.5])
-                    with c_a:
-                        st.metric("Alumnes", f"{alumnes:.0f}{delta}")
-                        st.caption(f"Unitari: **{row['Benefici_Unitari']:.1f} €**")
-                    with c_b:
-                        st.write(f"**Ing:** {row['Ingressos_Reals']:.0f} €")
-                        st.write(f"**Cost:** {row['Despeses']:.0f} €")
-                    with c_c:
+        with tab5: # FITXES
+            if not df_view.empty:
+                for i, row in df_view.sort_values('Marge_Real', ascending=False).iterrows():
+                    icon = get_icon(row['Categoria']) if 'Categoria' in row else "📝"
+                    alumnes = row['Num_Alumnes_Final']
+                    tags_html = get_smart_tags(row)
+                    
+                    with st.expander(f"{icon} {row['Activitat']} | {row['Marge_Real']:,.0f} €", expanded=False):
+                        st.markdown(tags_html, unsafe_allow_html=True)
+                        st.write("")
+                        c_a, c_b = st.columns(2)
+                        with c_a:
+                            st.write(f"**Alumnes:** {alumnes:.0f}")
+                            st.write(f"**Unitari:** {row['Benefici_Unitari']:.1f} €")
+                        with c_b:
+                            st.write(f"**Ing:** {row['Ingressos_Reals']:.0f} €")
+                            st.write(f"**Cost:** {row['Despeses']:.0f} €")
+                        
                         ratio = max(0.0, min(1.0, row['Marge_Real']/row['Ingressos_Reals'])) if row['Ingressos_Reals'] > 0 else 0
                         st.progress(ratio)
 
     except Exception as e:
-        st.error(f"⚠️ Error: {e}")
+        st.error(f"⚠️: {e}")
 else:
     st.info("👈 Connecta l'Excel.")
