@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-streamlit-gsheets
-XlsxWriter
+st-gsheets-connection
+xlsxwriter
 google-generativeai
 fpdf
