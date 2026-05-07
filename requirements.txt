@@ -1,5 +1,7 @@
 streamlit
-st-gsheets-connection
-matplotlib
+pandas
 plotly
+streamlit-gsheets
 XlsxWriter
+google-generativeai
+fpdf
